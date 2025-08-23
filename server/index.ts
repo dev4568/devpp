@@ -2,6 +2,13 @@ import "dotenv/config";
 import express from "express";
 import cors from "cors";
 import { handleDemo } from "./routes/demo";
+import {
+  createOrder,
+  verifyPayment,
+  getPaymentStatus,
+  handleWebhook,
+  getConfig,
+} from "./routes/payment";
 
 export function createServer() {
   const app = express();
@@ -18,6 +25,13 @@ export function createServer() {
   });
 
   app.get("/api/demo", handleDemo);
+
+  // Payment routes
+  app.post("/api/payment/create-order", createOrder);
+  app.post("/api/payment/verify", verifyPayment);
+  app.get("/api/payment/status/:paymentId", getPaymentStatus);
+  app.post("/api/payment/webhook", handleWebhook);
+  app.get("/api/payment/config", getConfig);
 
   return app;
 }
