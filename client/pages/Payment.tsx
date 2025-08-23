@@ -91,45 +91,60 @@ export default function Payment() {
   }, [customerInfo]); // Only depend on customerInfo
 
   const handleFallbackPaymentInitialization = async () => {
-    // Check for temp cost data
-    const tempCostData = localStorage.getItem("udin_temp_cost");
-    
-    if (tempCostData) {
-      try {
-        const costData = JSON.parse(tempCostData);
-        // This is simplified - in real implementation, you'd reconstruct the order items
-        console.log('Using temp cost data:', costData);
-      } catch (error) {
-        console.error('Error parsing temp cost data:', error);
-      }
+    // Don't proceed if already initialized or processing
+    if (paymentState.currentPayment || paymentState.isProcessing) {
       return;
     }
 
-    // Fallback to URL params
-    const documentId = searchParams.get("document") || "cert-net-worth";
-    const tier = searchParams.get("tier") || "Standard";
-    const quantity = parseInt(searchParams.get("quantity") || "1");
+    try {
+      // Check for temp cost data
+      const tempCostData = localStorage.getItem("udin_temp_cost");
 
-    const orderItems = [{
-      documentTypeId: documentId,
-      tier,
-      quantity,
-    }];
+      if (tempCostData) {
+        try {
+          const costData = JSON.parse(tempCostData);
+          // This is simplified - in real implementation, you'd reconstruct the order items
+          console.log('Using temp cost data:', costData);
+          // For now, just show that temp data exists but don't initialize payment
+          // The user should go back to upload page to complete properly
+          return;
+        } catch (error) {
+          console.error('Error parsing temp cost data:', error);
+        }
+        return;
+      }
 
-    const calculation = pricingActions.calculateFromFiles([{
-      id: 'temp',
-      name: 'Fallback Document',
-      size: 0,
-      type: 'application/pdf',
-      status: 'completed' as const,
-      progress: 100,
-      documentTypeId: documentId,
-      tier,
-      file: new File([], 'temp.pdf'),
-    }]);
+      // Fallback to URL params only if no temp data and no valid files
+      const documentId = searchParams.get("document") || "cert-net-worth";
+      const tier = searchParams.get("tier") || "Standard";
+      const quantity = parseInt(searchParams.get("quantity") || "1");
 
-    if (calculation.totalAmount > 0) {
-      await paymentActions.initializePayment(orderItems, calculation, customerInfo);
+      const orderItems = [{
+        documentTypeId: documentId,
+        tier,
+        quantity,
+      }];
+
+      // Create a mock file for calculation
+      const mockFile = {
+        id: 'temp',
+        name: 'Fallback Document',
+        size: 0,
+        type: 'application/pdf',
+        status: 'completed' as const,
+        progress: 100,
+        documentTypeId: documentId,
+        tier,
+        file: new File([], 'temp.pdf'),
+      };
+
+      const calculation = pricingActions.calculateFromFiles([mockFile]);
+
+      if (calculation.totalAmount > 0 && customerInfo) {
+        await paymentActions.initializePayment(orderItems, calculation, customerInfo);
+      }
+    } catch (error) {
+      console.error('Error in fallback payment initialization:', error);
     }
   };
 
