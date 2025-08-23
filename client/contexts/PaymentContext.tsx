@@ -198,8 +198,11 @@ export function PaymentProvider({ children }: PaymentProviderProps) {
       }
 
       return new Promise((resolve) => {
+        // Get Razorpay configuration
+        const razorpayKey = 'rzp_test_your_key_here'; // In production, get this from server config
+
         const options = {
-          key: 'rzp_test_your_key_here', // This should come from environment variables
+          key: razorpayKey,
           amount: state.currentPayment!.amount,
           currency: state.currentPayment!.currency,
           name: 'UDIN Professional Services',
