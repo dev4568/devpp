@@ -323,13 +323,6 @@ export function PaymentProvider({ children }: PaymentProviderProps) {
     setState(initialState);
   }, []);
 
-  // Clear any existing payment when component unmounts to prevent stale state
-  useEffect(() => {
-    return () => {
-      // Cleanup function - don't clear state on unmount as it may be needed
-    };
-  }, []);
-
   const savePaymentData = useCallback((paymentResult: PaymentResult) => {
     if (paymentResult.success && state.currentPayment) {
       const paymentData = {
