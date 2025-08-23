@@ -1,8 +1,8 @@
-import React, { Component, ReactNode } from 'react';
-import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { AlertTriangle, RefreshCw, Home } from 'lucide-react';
-import { alertUtils } from '@/utils/apiService';
+import React, { Component, ReactNode } from "react";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { AlertTriangle, RefreshCw, Home } from "lucide-react";
+import { alertUtils } from "@/utils/apiService";
 
 interface Props {
   children: ReactNode;
@@ -32,8 +32,8 @@ export class ErrorBoundary extends Component<Props, State> {
   }
 
   componentDidCatch(error: Error, errorInfo: React.ErrorInfo) {
-    console.error('Error Boundary caught an error:', error, errorInfo);
-    
+    console.error("Error Boundary caught an error:", error, errorInfo);
+
     this.setState({
       error,
       errorInfo,
@@ -41,8 +41,8 @@ export class ErrorBoundary extends Component<Props, State> {
 
     // Show error alert
     alertUtils.error(
-      `${error.message || 'An unexpected error occurred'}`,
-      'Application Error'
+      `${error.message || "An unexpected error occurred"}`,
+      "Application Error",
     );
 
     // In a real app, you would log this to an error reporting service
@@ -58,7 +58,7 @@ export class ErrorBoundary extends Component<Props, State> {
   };
 
   handleGoHome = () => {
-    window.location.href = '/';
+    window.location.href = "/";
   };
 
   render() {
@@ -76,8 +76,11 @@ export class ErrorBoundary extends Component<Props, State> {
             </CardHeader>
             <CardContent className="space-y-4">
               <div className="text-sm text-gray-600 text-center">
-                <p>We encountered an unexpected error. Please try refreshing the page.</p>
-                {process.env.NODE_ENV === 'development' && this.state.error && (
+                <p>
+                  We encountered an unexpected error. Please try refreshing the
+                  page.
+                </p>
+                {process.env.NODE_ENV === "development" && this.state.error && (
                   <details className="mt-4 p-2 bg-gray-100 rounded text-left">
                     <summary className="cursor-pointer font-medium">
                       Error Details (Development)
@@ -89,7 +92,7 @@ export class ErrorBoundary extends Component<Props, State> {
                   </details>
                 )}
               </div>
-              
+
               <div className="flex gap-2">
                 <Button
                   onClick={this.handleRetry}
@@ -120,7 +123,7 @@ export class ErrorBoundary extends Component<Props, State> {
 
 // HOC version for functional components
 export function withErrorBoundary<P extends object>(
-  WrappedComponent: React.ComponentType<P>
+  WrappedComponent: React.ComponentType<P>,
 ) {
   return function WithErrorBoundaryComponent(props: P) {
     return (

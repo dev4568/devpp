@@ -49,7 +49,7 @@ export default function Upload(): JSX.Element {
   const navigate = useNavigate();
   const { state: documentsState, actions: documentsActions } = useDocuments();
   const { state: pricingState, actions: pricingActions } = usePricing();
-  
+
   const [isDragOver, setIsDragOver] = useState<boolean>(false);
   const [showCostPopup, setShowCostPopup] = useState<boolean>(false);
 
@@ -60,22 +60,31 @@ export default function Upload(): JSX.Element {
     }
   }, [documentsState.files, pricingActions]);
 
-  const handleDragOver = useCallback((e: React.DragEvent<HTMLDivElement>): void => {
-    e.preventDefault();
-    setIsDragOver(true);
-  }, []);
+  const handleDragOver = useCallback(
+    (e: React.DragEvent<HTMLDivElement>): void => {
+      e.preventDefault();
+      setIsDragOver(true);
+    },
+    [],
+  );
 
-  const handleDragLeave = useCallback((e: React.DragEvent<HTMLDivElement>): void => {
-    e.preventDefault();
-    setIsDragOver(false);
-  }, []);
+  const handleDragLeave = useCallback(
+    (e: React.DragEvent<HTMLDivElement>): void => {
+      e.preventDefault();
+      setIsDragOver(false);
+    },
+    [],
+  );
 
-  const handleDrop = useCallback((e: React.DragEvent<HTMLDivElement>): void => {
-    e.preventDefault();
-    setIsDragOver(false);
-    const droppedFiles = Array.from(e.dataTransfer.files);
-    documentsActions.addFiles(droppedFiles);
-  }, [documentsActions]);
+  const handleDrop = useCallback(
+    (e: React.DragEvent<HTMLDivElement>): void => {
+      e.preventDefault();
+      setIsDragOver(false);
+      const droppedFiles = Array.from(e.dataTransfer.files);
+      documentsActions.addFiles(droppedFiles);
+    },
+    [documentsActions],
+  );
 
   const handleFileSelect = useCallback(
     (e: React.ChangeEvent<HTMLInputElement>): void => {
@@ -116,9 +125,11 @@ export default function Upload(): JSX.Element {
 
   const handleContinue = (): void => {
     const validFiles = documentsActions.getValidFiles();
-    
+
     if (validFiles.length === 0) {
-      alertUtils.warning('Please select document types for all files before continuing');
+      alertUtils.warning(
+        "Please select document types for all files before continuing",
+      );
       return;
     }
 
@@ -129,9 +140,9 @@ export default function Upload(): JSX.Element {
 
   const handleProceedToRegistration = async (): Promise<void> => {
     const validFiles = documentsActions.getValidFiles();
-    
+
     if (validFiles.length === 0) {
-      alertUtils.error('No valid files to proceed with');
+      alertUtils.error("No valid files to proceed with");
       return;
     }
 
@@ -139,29 +150,31 @@ export default function Upload(): JSX.Element {
       // Save cost breakdown metadata in localStorage for backward compatibility
       const costBreakdown = pricingActions.calculateFromFiles(validFiles);
       const orderSummary = pricingActions.getOrderSummary();
-      
+
       const tempCostData = {
         costBreakdown,
         filesCount: validFiles.length,
-        fileIds: validFiles.map(f => f.id),
+        fileIds: validFiles.map((f) => f.id),
         orderSummary,
         timestamp: new Date().toISOString(),
       };
-      
+
       localStorage.setItem("udin_temp_cost", JSON.stringify(tempCostData));
 
       setShowCostPopup(false);
-      
+
       // Show success message and navigate
-      alertUtils.success('Order prepared successfully! Redirecting to signup...', 'Ready to Proceed');
-      
+      alertUtils.success(
+        "Order prepared successfully! Redirecting to signup...",
+        "Ready to Proceed",
+      );
+
       setTimeout(() => {
         navigate("/signup");
       }, 1500);
-      
     } catch (error) {
-      console.error('Error saving cost data:', error);
-      alertUtils.error('Error preparing order. Please try again.');
+      console.error("Error saving cost data:", error);
+      alertUtils.error("Error preparing order. Please try again.");
     }
   };
 
@@ -181,8 +194,12 @@ export default function Upload(): JSX.Element {
       <div className="min-h-screen bg-gradient-to-br from-indigo-50 via-white to-purple-50 flex items-center justify-center">
         <div className="text-center">
           <Loader2 className="h-8 w-8 animate-spin mx-auto mb-4 text-primary" />
-          <p className="text-lg font-medium text-gray-700">Loading your files...</p>
-          <p className="text-sm text-gray-500 mt-2">Please wait while we set up your workspace</p>
+          <p className="text-lg font-medium text-gray-700">
+            Loading your files...
+          </p>
+          <p className="text-sm text-gray-500 mt-2">
+            Please wait while we set up your workspace
+          </p>
         </div>
       </div>
     );
@@ -251,8 +268,12 @@ export default function Upload(): JSX.Element {
             </p>
             {documentsState.files.length > 0 && (
               <div className="mt-4 flex gap-2 justify-center flex-wrap">
-                <Badge variant="secondary" className="text-green-700 bg-green-100">
-                  {documentsState.completedFiles} of {documentsState.totalFiles} files uploaded
+                <Badge
+                  variant="secondary"
+                  className="text-green-700 bg-green-100"
+                >
+                  {documentsState.completedFiles} of {documentsState.totalFiles}{" "}
+                  files uploaded
                 </Badge>
                 <Badge variant="outline" className="text-blue-700 bg-blue-50">
                   ₹{pricingState.calculation.totalAmount.toFixed(2)} total
@@ -378,7 +399,10 @@ export default function Upload(): JSX.Element {
                               <Select
                                 value={file.documentTypeId}
                                 onValueChange={(value) =>
-                                  documentsActions.updateFileDocumentType(file.id, value)
+                                  documentsActions.updateFileDocumentType(
+                                    file.id,
+                                    value,
+                                  )
                                 }
                               >
                                 <SelectTrigger className="w-48 h-7 text-xs">
@@ -515,7 +539,8 @@ export default function Upload(): JSX.Element {
             </div>
 
             <div className="text-xs text-gray-500 text-center">
-              Files are stored locally. Payment will be collected during registration.
+              Files are stored locally. Payment will be collected during
+              registration.
             </div>
           </div>
 

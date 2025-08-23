@@ -7,18 +7,19 @@ This file explains how to easily replace API endpoints in the application.
 All API calls are centralized in `client/utils/apiService.ts`. To replace endpoints:
 
 ### 1. Payment APIs
+
 Replace these endpoints in the `paymentAPI` object:
 
 ```typescript
 export const paymentAPI = {
   createOrder: async (orderData: any) => {
-    return apiService.post('/api/payment/create-order', orderData, {
+    return apiService.post("/api/payment/create-order", orderData, {
       // Replace '/api/payment/create-order' with your endpoint
     });
   },
 
   verifyPayment: async (paymentData: any) => {
-    return apiService.post('/api/payment/verify', paymentData, {
+    return apiService.post("/api/payment/verify", paymentData, {
       // Replace '/api/payment/verify' with your endpoint
     });
   },
@@ -28,18 +29,19 @@ export const paymentAPI = {
 ```
 
 ### 2. Document APIs
+
 Replace these endpoints in the `documentsAPI` object:
 
 ```typescript
 export const documentsAPI = {
   uploadDocuments: async (formData: FormData) => {
-    return apiService.request('/api/documents/upload', {
+    return apiService.request("/api/documents/upload", {
       // Replace '/api/documents/upload' with your endpoint
     });
   },
 
   getDocuments: async () => {
-    return apiService.get('/api/documents', {
+    return apiService.get("/api/documents", {
       // Replace '/api/documents' with your endpoint
     });
   },
@@ -49,18 +51,19 @@ export const documentsAPI = {
 ```
 
 ### 3. User APIs
+
 Replace these endpoints in the `userAPI` object:
 
 ```typescript
 export const userAPI = {
   login: async (credentials: any) => {
-    return apiService.post('/api/auth/login', credentials, {
+    return apiService.post("/api/auth/login", credentials, {
       // Replace '/api/auth/login' with your endpoint
     });
   },
 
   signup: async (userData: any) => {
-    return apiService.post('/api/auth/signup', userData, {
+    return apiService.post("/api/auth/signup", userData, {
       // Replace '/api/auth/signup' with your endpoint
     });
   },
@@ -72,30 +75,33 @@ export const userAPI = {
 ## API Service Configuration
 
 ### Base URL
+
 Change the base URL in the ApiService constructor:
 
 ```typescript
 // In apiService.ts
-const apiService = new ApiService('https://your-api-domain.com');
+const apiService = new ApiService("https://your-api-domain.com");
 ```
 
 ### Default Options
+
 Modify default behavior in each API call:
 
 ```typescript
-return apiService.post('/your-endpoint', data, {
-  showLoading: true,     // Show loading spinner
-  showSuccess: true,     // Show success message
-  showError: true,       // Show error message
-  successMessage: 'Custom success message',
-  errorMessage: 'Custom error message',
-  timeout: 30000,        // Request timeout in ms
+return apiService.post("/your-endpoint", data, {
+  showLoading: true, // Show loading spinner
+  showSuccess: true, // Show success message
+  showError: true, // Show error message
+  successMessage: "Custom success message",
+  errorMessage: "Custom error message",
+  timeout: 30000, // Request timeout in ms
 });
 ```
 
 ## Error Handling
 
 All API calls automatically handle:
+
 - Network errors
 - Timeout errors
 - HTTP status errors
@@ -108,21 +114,21 @@ For new endpoints, use the base apiService:
 
 ```typescript
 // GET request
-const result = await apiService.get('/your-endpoint', {
+const result = await apiService.get("/your-endpoint", {
   showError: true,
 });
 
 // POST request
-const result = await apiService.post('/your-endpoint', data, {
+const result = await apiService.post("/your-endpoint", data, {
   showLoading: true,
   showSuccess: true,
 });
 
 // Custom request
-const result = await apiService.request('/your-endpoint', {
-  method: 'PATCH',
+const result = await apiService.request("/your-endpoint", {
+  method: "PATCH",
   body: data,
-  headers: { 'Custom-Header': 'value' },
+  headers: { "Custom-Header": "value" },
   showLoading: true,
 });
 ```

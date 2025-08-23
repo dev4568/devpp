@@ -3,12 +3,14 @@
 ## ✅ What's Been Added
 
 ### 1. **SweetAlert2 Integration**
+
 - **Package**: `sweetalert2` for beautiful, responsive alerts
 - **Utility Functions**: Centralized alert management in `client/utils/apiService.ts`
 - **Types**: Success, Error, Warning, Info, Confirmation, Loading alerts
 - **Auto-dismiss**: Configurable timer-based alerts
 
 ### 2. **Comprehensive API Service**
+
 - **Centralized API Layer**: `client/utils/apiService.ts`
 - **Error Handling**: Automatic error detection and user-friendly messages
 - **Loading States**: Optional loading spinners for API calls
@@ -16,12 +18,14 @@
 - **Response Standardization**: Consistent API response format
 
 ### 3. **Enhanced Context Management**
+
 - **DocumentsContext**: File management with SweetAlert2 notifications
 - **PricingContext**: Order calculations with error alerts
 - **PaymentContext**: Razorpay integration with proper error handling
 - **All contexts**: Integrated with alert system for user feedback
 
 ### 4. **Error Boundary**
+
 - **Global Error Handling**: React Error Boundary component
 - **User-Friendly Errors**: Beautiful error pages with retry options
 - **Development Mode**: Detailed error information in dev environment
@@ -30,55 +34,60 @@
 ### 5. **API Categories**
 
 #### Payment APIs
+
 ```typescript
-paymentAPI.createOrder(orderData)
-paymentAPI.verifyPayment(paymentData)
-paymentAPI.getPaymentStatus(paymentId)
-paymentAPI.getConfig()
+paymentAPI.createOrder(orderData);
+paymentAPI.verifyPayment(paymentData);
+paymentAPI.getPaymentStatus(paymentId);
+paymentAPI.getConfig();
 ```
 
 #### Document APIs
+
 ```typescript
-documentsAPI.uploadDocuments(formData)
-documentsAPI.getDocuments()
-documentsAPI.deleteDocument(documentId)
-documentsAPI.updateDocument(documentId, updates)
+documentsAPI.uploadDocuments(formData);
+documentsAPI.getDocuments();
+documentsAPI.deleteDocument(documentId);
+documentsAPI.updateDocument(documentId, updates);
 ```
 
 #### User APIs
+
 ```typescript
-userAPI.login(credentials)
-userAPI.signup(userData)
-userAPI.verifyOTP(otpData)
-userAPI.getUserProfile()
-userAPI.updateProfile(profileData)
+userAPI.login(credentials);
+userAPI.signup(userData);
+userAPI.verifyOTP(otpData);
+userAPI.getUserProfile();
+userAPI.updateProfile(profileData);
 ```
 
 ## 🎯 Key Features
 
 ### **Alert Utilities**
+
 ```typescript
 // Success alerts
-alertUtils.success('Operation completed!', 'Success');
+alertUtils.success("Operation completed!", "Success");
 
 // Error alerts
-alertUtils.error('Something went wrong!', 'Error');
+alertUtils.error("Something went wrong!", "Error");
 
 // Warning alerts
-alertUtils.warning('Please check your input', 'Warning');
+alertUtils.warning("Please check your input", "Warning");
 
 // Info alerts
-alertUtils.info('Here is some information', 'Info');
+alertUtils.info("Here is some information", "Info");
 
 // Confirmation dialogs
-const confirmed = await alertUtils.confirm('Are you sure?', 'Confirm Action');
+const confirmed = await alertUtils.confirm("Are you sure?", "Confirm Action");
 
 // Loading alerts
-const loading = alertUtils.loading('Processing...');
+const loading = alertUtils.loading("Processing...");
 alertUtils.close(); // Close loading
 ```
 
 ### **API Service Features**
+
 - **Automatic Error Handling**: Network errors, timeouts, HTTP errors
 - **Loading Management**: Optional loading spinners
 - **Success Notifications**: Configurable success messages
@@ -86,6 +95,7 @@ alertUtils.close(); // Close loading
 - **Request Cancellation**: Timeout-based request cancellation
 
 ### **Enhanced User Experience**
+
 - **File Upload**: Progress tracking with success/error alerts
 - **Payment Flow**: Step-by-step guidance with error recovery
 - **Order Management**: Real-time pricing updates with notifications
@@ -94,20 +104,22 @@ alertUtils.close(); // Close loading
 ## 🔧 Configuration
 
 ### **Replace API Endpoints**
+
 Simply update the endpoint URLs in `client/utils/apiService.ts`:
 
 ```typescript
 // Change this:
-return apiService.post('/api/payment/create-order', orderData);
+return apiService.post("/api/payment/create-order", orderData);
 
 // To this:
-return apiService.post('/your-api/create-payment', orderData);
+return apiService.post("/your-api/create-payment", orderData);
 ```
 
 ### **Customize Alert Behavior**
+
 ```typescript
 // Disable automatic error alerts
-const result = await apiService.post('/api/endpoint', data, {
+const result = await apiService.post("/api/endpoint", data, {
   showError: false,
   showLoading: true,
   showSuccess: true,
@@ -115,6 +127,7 @@ const result = await apiService.post('/api/endpoint', data, {
 ```
 
 ### **Environment Configuration**
+
 ```bash
 # Add to your .env file
 RAZORPAY_KEY_ID=your_key_here
@@ -124,13 +137,16 @@ RAZORPAY_KEY_SECRET=your_secret_here
 ## 🧪 Testing
 
 ### **Demo Route**
+
 Visit `/demo` to test all SweetAlert2 functionality:
+
 - Different alert types
 - API error handling
 - Loading states
 - Confirmation dialogs
 
 ### **Error Boundary Testing**
+
 The ErrorBoundary component catches and displays React errors beautifully.
 
 ## 📁 File Structure
@@ -159,20 +175,25 @@ client/
 ## 🚀 Production Deployment
 
 ### **1. Environment Variables**
+
 Set up your production environment variables for Razorpay and any custom API endpoints.
 
 ### **2. API Endpoints**
+
 Replace all API endpoints in `apiService.ts` with your production URLs.
 
 ### **3. Error Logging**
+
 The ErrorBoundary is ready for integration with error logging services like Sentry.
 
 ### **4. Alert Customization**
+
 Customize alert themes and behavior in `alertUtils` functions.
 
 ## 💡 Usage Examples
 
 ### **Context Integration**
+
 ```typescript
 // In components
 const { state, actions } = useDocuments();
@@ -190,6 +211,7 @@ if (result.success) {
 ```
 
 ### **Payment Flow**
+
 ```typescript
 // Initialize payment (shows loading + success/error)
 await paymentActions.initializePayment(orderItems, calculation, customerInfo);
@@ -199,13 +221,14 @@ const result = await paymentActions.processRazorpayPayment();
 ```
 
 ### **Custom API Calls**
+
 ```typescript
 // Custom endpoint with full error handling
-const result = await apiService.post('/custom/endpoint', data, {
+const result = await apiService.post("/custom/endpoint", data, {
   showLoading: true,
   showSuccess: true,
-  successMessage: 'Custom operation completed!',
-  errorMessage: 'Custom operation failed!',
+  successMessage: "Custom operation completed!",
+  errorMessage: "Custom operation failed!",
   timeout: 10000,
 });
 ```
@@ -213,10 +236,13 @@ const result = await apiService.post('/custom/endpoint', data, {
 ## 🎨 Customization
 
 ### **Alert Themes**
+
 Modify SweetAlert2 themes in the `alertUtils` functions to match your brand colors.
 
 ### **API Response Format**
+
 The service expects this response format:
+
 ```typescript
 {
   success: boolean,
@@ -227,6 +253,7 @@ The service expects this response format:
 ```
 
 ### **Loading Customization**
+
 Customize loading messages and behavior for different operations.
 
 ---

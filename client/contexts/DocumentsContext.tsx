@@ -1,6 +1,12 @@
-import React, { createContext, useContext, useReducer, useEffect, ReactNode } from 'react';
-import { fileStorage } from '@/utlis/fileStorage';
-import { documentsAPI, alertUtils } from '@/utils/apiService';
+import React, {
+  createContext,
+  useContext,
+  useReducer,
+  useEffect,
+  ReactNode,
+} from "react";
+import { fileStorage } from "@/utlis/fileStorage";
+import { documentsAPI, alertUtils } from "@/utils/apiService";
 
 export interface UploadedFile {
   id: string;
@@ -24,14 +30,17 @@ interface DocumentsState {
 }
 
 type DocumentsAction =
-  | { type: 'SET_LOADING'; payload: boolean }
-  | { type: 'SET_ERROR'; payload: string | null }
-  | { type: 'SET_FILES'; payload: UploadedFile[] }
-  | { type: 'ADD_FILES'; payload: UploadedFile[] }
-  | { type: 'UPDATE_FILE'; payload: { id: string; updates: Partial<UploadedFile> } }
-  | { type: 'REMOVE_FILE'; payload: string }
-  | { type: 'CLEAR_FILES' }
-  | { type: 'RESTORE_FILES'; payload: UploadedFile[] };
+  | { type: "SET_LOADING"; payload: boolean }
+  | { type: "SET_ERROR"; payload: string | null }
+  | { type: "SET_FILES"; payload: UploadedFile[] }
+  | { type: "ADD_FILES"; payload: UploadedFile[] }
+  | {
+      type: "UPDATE_FILE";
+      payload: { id: string; updates: Partial<UploadedFile> };
+    }
+  | { type: "REMOVE_FILE"; payload: string }
+  | { type: "CLEAR_FILES" }
+  | { type: "RESTORE_FILES"; payload: UploadedFile[] };
 
 const initialState: DocumentsState = {
   files: [],
@@ -41,68 +50,77 @@ const initialState: DocumentsState = {
   completedFiles: 0,
 };
 
-function documentsReducer(state: DocumentsState, action: DocumentsAction): DocumentsState {
+function documentsReducer(
+  state: DocumentsState,
+  action: DocumentsAction,
+): DocumentsState {
   switch (action.type) {
-    case 'SET_LOADING':
+    case "SET_LOADING":
       return { ...state, isLoading: action.payload };
-    
-    case 'SET_ERROR':
+
+    case "SET_ERROR":
       return { ...state, error: action.payload };
-    
-    case 'SET_FILES':
+
+    case "SET_FILES":
       return {
         ...state,
         files: action.payload,
         totalFiles: action.payload.length,
-        completedFiles: action.payload.filter(f => f.status === 'completed').length,
+        completedFiles: action.payload.filter((f) => f.status === "completed")
+          .length,
       };
-    
-    case 'ADD_FILES':
+
+    case "ADD_FILES":
       const newFiles = [...state.files, ...action.payload];
       return {
         ...state,
         files: newFiles,
         totalFiles: newFiles.length,
-        completedFiles: newFiles.filter(f => f.status === 'completed').length,
+        completedFiles: newFiles.filter((f) => f.status === "completed").length,
       };
-    
-    case 'UPDATE_FILE':
-      const updatedFiles = state.files.map(file =>
+
+    case "UPDATE_FILE":
+      const updatedFiles = state.files.map((file) =>
         file.id === action.payload.id
           ? { ...file, ...action.payload.updates }
-          : file
+          : file,
       );
       return {
         ...state,
         files: updatedFiles,
-        completedFiles: updatedFiles.filter(f => f.status === 'completed').length,
+        completedFiles: updatedFiles.filter((f) => f.status === "completed")
+          .length,
       };
-    
-    case 'REMOVE_FILE':
-      const remainingFiles = state.files.filter(file => file.id !== action.payload);
+
+    case "REMOVE_FILE":
+      const remainingFiles = state.files.filter(
+        (file) => file.id !== action.payload,
+      );
       return {
         ...state,
         files: remainingFiles,
         totalFiles: remainingFiles.length,
-        completedFiles: remainingFiles.filter(f => f.status === 'completed').length,
+        completedFiles: remainingFiles.filter((f) => f.status === "completed")
+          .length,
       };
-    
-    case 'CLEAR_FILES':
+
+    case "CLEAR_FILES":
       return {
         ...state,
         files: [],
         totalFiles: 0,
         completedFiles: 0,
       };
-    
-    case 'RESTORE_FILES':
+
+    case "RESTORE_FILES":
       return {
         ...state,
         files: action.payload,
         totalFiles: action.payload.length,
-        completedFiles: action.payload.filter(f => f.status === 'completed').length,
+        completedFiles: action.payload.filter((f) => f.status === "completed")
+          .length,
       };
-    
+
     default:
       return state;
   }
@@ -113,7 +131,10 @@ interface DocumentsContextValue {
   actions: {
     addFiles: (files: File[]) => Promise<void>;
     removeFile: (id: string) => Promise<void>;
-    updateFileDocumentType: (id: string, documentTypeId: string) => Promise<void>;
+    updateFileDocumentType: (
+      id: string,
+      documentTypeId: string,
+    ) => Promise<void>;
     updateFileTier: (id: string, tier: string) => Promise<void>;
     clearAllFiles: () => Promise<void>;
     restoreFiles: () => Promise<void>;
@@ -123,12 +144,14 @@ interface DocumentsContextValue {
   };
 }
 
-const DocumentsContext = createContext<DocumentsContextValue | undefined>(undefined);
+const DocumentsContext = createContext<DocumentsContextValue | undefined>(
+  undefined,
+);
 
 export function useDocuments() {
   const context = useContext(DocumentsContext);
   if (context === undefined) {
-    throw new Error('useDocuments must be used within a DocumentsProvider');
+    throw new Error("useDocuments must be used within a DocumentsProvider");
   }
   return context;
 }
@@ -159,7 +182,9 @@ export function DocumentsProvider({ children }: DocumentsProviderProps) {
     restoreFiles();
   }, []);
 
-  const validateFiles = (files: File[]): { valid: File[]; errors: string[] } => {
+  const validateFiles = (
+    files: File[],
+  ): { valid: File[]; errors: string[] } => {
     const errors: string[] = [];
     const valid: File[] = [];
 
@@ -168,9 +193,11 @@ export function DocumentsProvider({ children }: DocumentsProviderProps) {
       return { valid, errors };
     }
 
-    files.forEach(file => {
+    files.forEach((file) => {
       if (!ALLOWED_TYPES.includes(file.type)) {
-        errors.push(`${file.name}: Invalid file type. Only JPG, JPEG, PDF, Word, and Excel files are allowed.`);
+        errors.push(
+          `${file.name}: Invalid file type. Only JPG, JPEG, PDF, Word, and Excel files are allowed.`,
+        );
         return;
       }
 
@@ -186,16 +213,16 @@ export function DocumentsProvider({ children }: DocumentsProviderProps) {
   };
 
   const addFiles = async (files: File[]): Promise<void> => {
-    dispatch({ type: 'SET_LOADING', payload: true });
-    dispatch({ type: 'SET_ERROR', payload: null });
+    dispatch({ type: "SET_LOADING", payload: true });
+    dispatch({ type: "SET_ERROR", payload: null });
 
     try {
       const { valid, errors } = validateFiles(files);
 
       if (errors.length > 0) {
-        alertUtils.error(errors.join('\n'), 'File Validation Error');
-        dispatch({ type: 'SET_ERROR', payload: errors.join('\n') });
-        dispatch({ type: 'SET_LOADING', payload: false });
+        alertUtils.error(errors.join("\n"), "File Validation Error");
+        dispatch({ type: "SET_ERROR", payload: errors.join("\n") });
+        dispatch({ type: "SET_LOADING", payload: false });
         return;
       }
 
@@ -213,42 +240,44 @@ export function DocumentsProvider({ children }: DocumentsProviderProps) {
       }));
 
       // Add to state first for immediate UI feedback
-      dispatch({ type: 'ADD_FILES', payload: uploadFiles });
+      dispatch({ type: "ADD_FILES", payload: uploadFiles });
 
       // Store files in IndexedDB
       await fileStorage.storeFiles(uploadFiles);
 
       // Update status to completed after successful storage
-      uploadFiles.forEach(file => {
+      uploadFiles.forEach((file) => {
         dispatch({
-          type: 'UPDATE_FILE',
-          payload: { id: file.id, updates: { status: "completed", progress: 100 } }
+          type: "UPDATE_FILE",
+          payload: {
+            id: file.id,
+            updates: { status: "completed", progress: 100 },
+          },
         });
       });
 
       // Show success message
       alertUtils.success(
-        `${uploadFiles.length} file${uploadFiles.length > 1 ? 's' : ''} uploaded successfully!`,
-        'Upload Successful'
+        `${uploadFiles.length} file${uploadFiles.length > 1 ? "s" : ""} uploaded successfully!`,
+        "Upload Successful",
       );
-
     } catch (error) {
-      console.error('Error storing files:', error);
-      const errorMessage = 'Error storing files. Please try again.';
-      dispatch({ type: 'SET_ERROR', payload: errorMessage });
+      console.error("Error storing files:", error);
+      const errorMessage = "Error storing files. Please try again.";
+      dispatch({ type: "SET_ERROR", payload: errorMessage });
       alertUtils.error(errorMessage);
     } finally {
-      dispatch({ type: 'SET_LOADING', payload: false });
+      dispatch({ type: "SET_LOADING", payload: false });
     }
   };
 
   const removeFile = async (id: string): Promise<void> => {
-    const fileToRemove = state.files.find(f => f.id === id);
-    
+    const fileToRemove = state.files.find((f) => f.id === id);
+
     if (fileToRemove) {
       const confirmed = await alertUtils.confirm(
         `Are you sure you want to remove "${fileToRemove.name}"?`,
-        'Remove File'
+        "Remove File",
       );
 
       if (!confirmed) {
@@ -258,30 +287,33 @@ export function DocumentsProvider({ children }: DocumentsProviderProps) {
 
     try {
       // Remove from state
-      dispatch({ type: 'REMOVE_FILE', payload: id });
-      
+      dispatch({ type: "REMOVE_FILE", payload: id });
+
       // Remove from IndexedDB
       await fileStorage.deleteFile(id);
 
-      alertUtils.success('File removed successfully');
+      alertUtils.success("File removed successfully");
     } catch (error) {
-      console.error('Error removing file:', error);
-      const errorMessage = 'Error removing file. Please try again.';
-      dispatch({ type: 'SET_ERROR', payload: errorMessage });
+      console.error("Error removing file:", error);
+      const errorMessage = "Error removing file. Please try again.";
+      dispatch({ type: "SET_ERROR", payload: errorMessage });
       alertUtils.error(errorMessage);
     }
   };
 
-  const updateFileDocumentType = async (id: string, documentTypeId: string): Promise<void> => {
+  const updateFileDocumentType = async (
+    id: string,
+    documentTypeId: string,
+  ): Promise<void> => {
     try {
       // Update local state first for immediate UI feedback
       dispatch({
-        type: 'UPDATE_FILE',
-        payload: { id, updates: { documentTypeId } }
+        type: "UPDATE_FILE",
+        payload: { id, updates: { documentTypeId } },
       });
 
       // Get the current file to update in IndexedDB
-      const currentFile = state.files.find(f => f.id === id);
+      const currentFile = state.files.find((f) => f.id === id);
       if (!currentFile) {
         throw new Error(`File with id ${id} not found`);
       }
@@ -295,9 +327,9 @@ export function DocumentsProvider({ children }: DocumentsProviderProps) {
 
       await fileStorage.storeFiles([updatedFileData]);
     } catch (error) {
-      console.error('Error updating file document type:', error);
-      const errorMessage = 'Error updating document type. Please try again.';
-      dispatch({ type: 'SET_ERROR', payload: errorMessage });
+      console.error("Error updating file document type:", error);
+      const errorMessage = "Error updating document type. Please try again.";
+      dispatch({ type: "SET_ERROR", payload: errorMessage });
       alertUtils.error(errorMessage);
     }
   };
@@ -306,12 +338,12 @@ export function DocumentsProvider({ children }: DocumentsProviderProps) {
     try {
       // Update local state first
       dispatch({
-        type: 'UPDATE_FILE',
-        payload: { id, updates: { tier } }
+        type: "UPDATE_FILE",
+        payload: { id, updates: { tier } },
       });
 
       // Get the current file to update in IndexedDB
-      const currentFile = state.files.find(f => f.id === id);
+      const currentFile = state.files.find((f) => f.id === id);
       if (!currentFile) {
         throw new Error(`File with id ${id} not found`);
       }
@@ -325,17 +357,17 @@ export function DocumentsProvider({ children }: DocumentsProviderProps) {
 
       await fileStorage.storeFiles([updatedFileData]);
     } catch (error) {
-      console.error('Error updating file tier:', error);
-      const errorMessage = 'Error updating tier. Please try again.';
-      dispatch({ type: 'SET_ERROR', payload: errorMessage });
+      console.error("Error updating file tier:", error);
+      const errorMessage = "Error updating tier. Please try again.";
+      dispatch({ type: "SET_ERROR", payload: errorMessage });
       alertUtils.error(errorMessage);
     }
   };
 
   const clearAllFiles = async (): Promise<void> => {
     const confirmed = await alertUtils.confirm(
-      'Are you sure you want to remove all files? This action cannot be undone.',
-      'Clear All Files'
+      "Are you sure you want to remove all files? This action cannot be undone.",
+      "Clear All Files",
     );
 
     if (!confirmed) {
@@ -343,25 +375,25 @@ export function DocumentsProvider({ children }: DocumentsProviderProps) {
     }
 
     try {
-      dispatch({ type: 'CLEAR_FILES' });
+      dispatch({ type: "CLEAR_FILES" });
       await fileStorage.clearAllFiles();
-      alertUtils.success('All files cleared successfully');
+      alertUtils.success("All files cleared successfully");
     } catch (error) {
-      console.error('Error clearing files:', error);
-      const errorMessage = 'Error clearing files. Please try again.';
-      dispatch({ type: 'SET_ERROR', payload: errorMessage });
+      console.error("Error clearing files:", error);
+      const errorMessage = "Error clearing files. Please try again.";
+      dispatch({ type: "SET_ERROR", payload: errorMessage });
       alertUtils.error(errorMessage);
     }
   };
 
   const restoreFiles = async (): Promise<void> => {
-    dispatch({ type: 'SET_LOADING', payload: true });
-    
+    dispatch({ type: "SET_LOADING", payload: true });
+
     try {
       const storedFiles = await fileStorage.getStoredFiles();
-      
+
       if (storedFiles.length > 0) {
-        const restoredFiles: UploadedFile[] = storedFiles.map(stored => ({
+        const restoredFiles: UploadedFile[] = storedFiles.map((stored) => ({
           id: stored.id,
           name: stored.name,
           size: stored.size,
@@ -373,31 +405,30 @@ export function DocumentsProvider({ children }: DocumentsProviderProps) {
           file: new File([stored.file], stored.name, { type: stored.type }),
           timestamp: stored.timestamp,
         }));
-        
-        dispatch({ type: 'RESTORE_FILES', payload: restoredFiles });
-        
+
+        dispatch({ type: "RESTORE_FILES", payload: restoredFiles });
+
         // Show info message if files were restored
         if (restoredFiles.length > 0) {
           alertUtils.info(
-            `${restoredFiles.length} file${restoredFiles.length > 1 ? 's' : ''} restored from previous session`,
-            'Files Restored'
+            `${restoredFiles.length} file${restoredFiles.length > 1 ? "s" : ""} restored from previous session`,
+            "Files Restored",
           );
         }
       }
     } catch (error) {
-      console.error('Error restoring files:', error);
-      const errorMessage = 'Error restoring files from storage.';
-      dispatch({ type: 'SET_ERROR', payload: errorMessage });
+      console.error("Error restoring files:", error);
+      const errorMessage = "Error restoring files from storage.";
+      dispatch({ type: "SET_ERROR", payload: errorMessage });
       alertUtils.error(errorMessage);
     } finally {
-      dispatch({ type: 'SET_LOADING', payload: false });
+      dispatch({ type: "SET_LOADING", payload: false });
     }
   };
 
   const getValidFiles = (): UploadedFile[] => {
-    return state.files.filter(file => 
-      file.status === 'completed' && 
-      file.documentTypeId !== ''
+    return state.files.filter(
+      (file) => file.status === "completed" && file.documentTypeId !== "",
     );
   };
 
@@ -408,21 +439,21 @@ export function DocumentsProvider({ children }: DocumentsProviderProps) {
   // Upload files to server (can be called after payment is successful)
   const uploadToServer = async (): Promise<void> => {
     const validFiles = getValidFiles();
-    
+
     if (validFiles.length === 0) {
-      alertUtils.warning('No valid files to upload to server');
+      alertUtils.warning("No valid files to upload to server");
       return;
     }
 
     try {
       // Create FormData for file upload
       const formData = new FormData();
-      
-      validFiles.forEach(file => {
-        formData.append('files', file.file);
-        formData.append('documentTypes', file.documentTypeId);
-        formData.append('tiers', file.tier);
-        formData.append('fileIds', file.id);
+
+      validFiles.forEach((file) => {
+        formData.append("files", file.file);
+        formData.append("documentTypes", file.documentTypeId);
+        formData.append("tiers", file.tier);
+        formData.append("fileIds", file.id);
       });
 
       // Upload to server using API service
@@ -430,16 +461,16 @@ export function DocumentsProvider({ children }: DocumentsProviderProps) {
 
       if (response.success) {
         // Update file statuses to indicate they're uploaded to server
-        validFiles.forEach(file => {
+        validFiles.forEach((file) => {
           dispatch({
-            type: 'UPDATE_FILE',
-            payload: { id: file.id, updates: { status: "completed" } }
+            type: "UPDATE_FILE",
+            payload: { id: file.id, updates: { status: "completed" } },
           });
         });
       }
     } catch (error) {
-      console.error('Error uploading to server:', error);
-      alertUtils.error('Failed to upload files to server');
+      console.error("Error uploading to server:", error);
+      alertUtils.error("Failed to upload files to server");
     }
   };
 
