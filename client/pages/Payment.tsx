@@ -20,126 +20,162 @@ import {
   AlertCircle,
   ArrowLeft,
 } from "lucide-react";
-import { PricingCalculator, DOCUMENT_TYPES } from "@shared/pricing";
-
-interface PaymentDetails {
-  documentTypeId: string;
-  tier: string;
-  quantity: number;
-}
+import { DOCUMENT_TYPES } from "@shared/pricing";
+import { useDocuments } from "@/contexts/DocumentsContext";
+import { usePricing } from "@/contexts/PricingContext";
+import { usePayment } from "@/contexts/PaymentContext";
 
 export default function Payment() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
-  const [processing, setProcessing] = useState(false);
-  const [paymentDetails, setPaymentDetails] = useState<PaymentDetails | null>(
-    null,
-  );
   const [showSuccessDialog, setShowSuccessDialog] = useState(false);
-  const [error, setError] = useState<string>("");
+  const [customerInfo, setCustomerInfo] = useState<any>(null);
+
+  const { state: documentsState, actions: documentsActions } = useDocuments();
+  const { state: pricingState, actions: pricingActions } = usePricing();
+  const { state: paymentState, actions: paymentActions } = usePayment();
 
   useEffect(() => {
-    // Get payment details from temporary storage (UDIN flow)
-    const tempCostData = localStorage.getItem("udin_temp_cost");
-
-    if (tempCostData) {
-      const costData = JSON.parse(tempCostData);
-      // Use the first document for demo (in real app, handle multiple documents)
-      const firstDoc = costData.files[0];
-      if (firstDoc) {
-        setPaymentDetails({
-          documentTypeId: firstDoc.documentTypeId,
-          tier: firstDoc.tier,
-          quantity: 1,
-        });
-        return;
+    // Initialize customer info from localStorage (from signup flow)
+    const userData = localStorage.getItem("udin_user_data");
+    if (userData) {
+      try {
+        const user = JSON.parse(userData);
+        setCustomerInfo(user);
+      } catch (error) {
+        console.error('Error parsing user data:', error);
       }
     }
 
-    // Fallback to URL params if no temp data
+    // Initialize payment if we have valid files and pricing
+    const initializePaymentFlow = async () => {
+      const validFiles = documentsActions.getValidFiles();
+      
+      if (validFiles.length > 0) {
+        // Update pricing calculation
+        pricingActions.updateOrderFromFiles(validFiles);
+        
+        // Get the latest calculation
+        const calculation = pricingActions.calculateFromFiles(validFiles);
+        
+        // Create order items for payment
+        const orderItems = validFiles.map(file => ({
+          documentTypeId: file.documentTypeId,
+          tier: file.tier,
+          quantity: 1,
+          fileName: file.name,
+          fileId: file.id,
+        }));
+
+        // Initialize payment with the customer info
+        if (calculation.totalAmount > 0 && orderItems.length > 0) {
+          await paymentActions.initializePayment(orderItems, calculation, customerInfo);
+        }
+      } else {
+        // Fallback: try to get payment details from URL params or localStorage
+        handleFallbackPaymentInitialization();
+      }
+    };
+
+    initializePaymentFlow();
+  }, [documentsActions, pricingActions, paymentActions, customerInfo]);
+
+  const handleFallbackPaymentInitialization = async () => {
+    // Check for temp cost data
+    const tempCostData = localStorage.getItem("udin_temp_cost");
+    
+    if (tempCostData) {
+      try {
+        const costData = JSON.parse(tempCostData);
+        // This is simplified - in real implementation, you'd reconstruct the order items
+        console.log('Using temp cost data:', costData);
+      } catch (error) {
+        console.error('Error parsing temp cost data:', error);
+      }
+      return;
+    }
+
+    // Fallback to URL params
     const documentId = searchParams.get("document") || "cert-net-worth";
     const tier = searchParams.get("tier") || "Standard";
     const quantity = parseInt(searchParams.get("quantity") || "1");
 
-    setPaymentDetails({
+    const orderItems = [{
       documentTypeId: documentId,
       tier,
       quantity,
-    });
-  }, [searchParams]);
+    }];
 
-  const calculateOrderTotal = () => {
-    if (!paymentDetails) {
-      return {
-        subtotal: 0,
-        gstAmount: 0,
-        totalAmount: 0,
-        breakdown: [],
-      };
+    const calculation = pricingActions.calculateFromFiles([{
+      id: 'temp',
+      name: 'Fallback Document',
+      size: 0,
+      type: 'application/pdf',
+      status: 'completed' as const,
+      progress: 100,
+      documentTypeId: documentId,
+      tier,
+      file: new File([], 'temp.pdf'),
+    }]);
+
+    if (calculation.totalAmount > 0) {
+      await paymentActions.initializePayment(orderItems, calculation, customerInfo);
     }
-
-    return PricingCalculator.calculateOrderTotal([paymentDetails]);
   };
-
-  const orderTotal = calculateOrderTotal();
-  const documentType = DOCUMENT_TYPES.find(
-    (dt) => dt.id === paymentDetails?.documentTypeId,
-  );
 
   const handlePayNow = async () => {
-    setProcessing(true);
-    setError("");
-
     try {
-      // Simulate Razorpay payment processing
-      await new Promise((resolve) => setTimeout(resolve, 3000));
-
-      // Save Payment Detailed Information to database (localStorage for demo)
-      const userData = JSON.parse(
-        localStorage.getItem("udin_user_data") || "{}",
-      );
-      const paymentData = {
-        paymentId: `PAY_${Date.now()}`,
-        userId: userData.userId,
-        amount: orderTotal.totalAmount,
-        breakdown: orderTotal,
-        documentDetails: paymentDetails,
-        paymentMethod: "razorpay",
-        status: "completed",
-        timestamp: new Date().toISOString(),
-        transactionId: `TXN_${Math.random().toString(36).substr(2, 9)}`,
-      };
-
-      // Save to localStorage (in real app, this would be API call)
-      localStorage.setItem("udin_payment_data", JSON.stringify(paymentData));
-
-      // Payment Confirmation to Email & Mobile (simulation)
-      const confirmationMessage = `UDIN Payment Confirmed! Amount: ₹${orderTotal.totalAmount.toFixed(2)}, Transaction ID: ${paymentData.transactionId}. Your documents are being processed.`;
-      console.log(
-        "Payment confirmation sent via SMS/Email:",
-        confirmationMessage,
-      );
-
-      setProcessing(false);
-      setShowSuccessDialog(true);
-
-      // Auto-redirect after success
-      setTimeout(() => {
-        navigate("/dashboard");
-      }, 2000);
-    } catch (err) {
-      setProcessing(false);
-      setError("Payment failed. Please try again.");
+      const result = await paymentActions.processRazorpayPayment();
+      
+      if (result.success) {
+        // Save payment data
+        paymentActions.savePaymentData(result);
+        
+        // Show success dialog
+        setShowSuccessDialog(true);
+        
+        // Auto-redirect after success
+        setTimeout(() => {
+          navigate("/dashboard");
+        }, 2000);
+      } else {
+        console.error('Payment failed:', result.error);
+      }
+    } catch (error) {
+      console.error('Payment processing error:', error);
     }
   };
 
-  if (!paymentDetails || !documentType) {
+  // Get current calculation and order summary
+  const calculation = pricingState.calculation;
+  const orderSummary = pricingActions.getOrderSummary();
+  const validFiles = documentsActions.getValidFiles();
+
+  // Show loading if no payment is initialized or files are loading
+  if (!paymentState.currentPayment || documentsState.isLoading) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-indigo-50 flex items-center justify-center p-4">
+        <div className="text-center">
+          <Loader2 className="h-12 w-12 text-primary mx-auto mb-4 animate-spin" />
+          <p className="text-lg text-muted-foreground mb-4">
+            Preparing your payment...
+          </p>
+          <p className="text-sm text-gray-500">
+            Please wait while we set up your order
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  // Show error if no valid order
+  if (!orderSummary.hasValidOrder) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-indigo-50 flex items-center justify-center p-4">
         <div className="text-center">
           <AlertCircle className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
           <p className="text-lg text-muted-foreground mb-4">
-            Invalid payment details. Please start from the upload page.
+            No valid order found. Please start from the upload page.
           </p>
           <Button variant="outline" onClick={() => navigate("/")}>
             Go to Upload
@@ -193,41 +229,44 @@ export default function Payment() {
             <CardContent className="space-y-6 p-6">
               {/* Order Details */}
               <div className="bg-gray-50 p-4 rounded-lg space-y-3">
-                <div className="flex justify-between items-start">
-                  <div>
-                    <h3 className="font-medium text-gray-900">
-                      {documentType.name}
-                    </h3>
-                    <p className="text-sm text-gray-600">
-                      {documentType.description}
-                    </p>
-                    <div className="flex items-center gap-2 mt-2">
-                      <Badge variant="outline" className="text-xs">
-                        {paymentDetails.tier}
-                      </Badge>
-                      <Badge variant="outline" className="text-xs">
-                        Qty: {paymentDetails.quantity}
-                      </Badge>
-                      {documentType.udinRequired && (
-                        <Badge
-                          variant="outline"
-                          className="text-xs bg-green-50 text-green-700"
-                        >
-                          UDIN Required
-                        </Badge>
-                      )}
-                    </div>
-                  </div>
-                  <div className="text-right">
-                    <div className="font-medium">
-                      ₹{orderTotal.breakdown[0]?.totalPrice.toFixed(2)}
-                    </div>
-                    <div className="text-sm text-gray-500">
-                      ₹{orderTotal.breakdown[0]?.unitPrice.toFixed(2)} per
-                      document
-                    </div>
-                  </div>
+                <div className="flex justify-between items-center mb-3">
+                  <h3 className="font-medium text-gray-900">Order Details</h3>
+                  <Badge variant="outline">
+                    {orderSummary.totalDocuments} document{orderSummary.totalDocuments > 1 ? 's' : ''}
+                  </Badge>
                 </div>
+                
+                {validFiles.map((file) => {
+                  const docType = DOCUMENT_TYPES.find(dt => dt.id === file.documentTypeId);
+                  return (
+                    <div key={file.id} className="flex justify-between items-start">
+                      <div>
+                        <h4 className="font-medium text-gray-900 text-sm">
+                          {docType?.name}
+                        </h4>
+                        <p className="text-xs text-gray-600">{file.name}</p>
+                        <div className="flex items-center gap-2 mt-1">
+                          <Badge variant="outline" className="text-xs">
+                            {file.tier}
+                          </Badge>
+                          {docType?.udinRequired && (
+                            <Badge
+                              variant="outline"
+                              className="text-xs bg-green-50 text-green-700"
+                            >
+                              UDIN Required
+                            </Badge>
+                          )}
+                        </div>
+                      </div>
+                      <div className="text-right">
+                        <div className="font-medium text-sm">
+                          ₹{docType ? (docType.basePrice * (file.tier === 'Express' ? 1.5 : file.tier === 'Premium' ? 2.0 : 1.0)).toFixed(2) : '0.00'}
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
               </div>
 
               {/* Amount Breakdown */}
@@ -235,19 +274,19 @@ export default function Payment() {
                 <div className="flex justify-between text-sm">
                   <span className="text-gray-600">Subtotal</span>
                   <span className="font-medium">
-                    ₹{orderTotal.subtotal.toFixed(2)}
+                    ₹{calculation.subtotal.toFixed(2)}
                   </span>
                 </div>
-                {orderTotal.bulkDiscount > 0 && (
+                {calculation.bulkDiscount > 0 && (
                   <div className="flex justify-between text-sm text-green-600">
-                    <span>Bulk Discount</span>
-                    <span>-₹{orderTotal.bulkDiscount.toFixed(2)}</span>
+                    <span>Bulk Discount (5+ documents)</span>
+                    <span>-₹{calculation.bulkDiscount.toFixed(2)}</span>
                   </div>
                 )}
                 <div className="flex justify-between text-sm">
                   <span className="text-gray-600">GST (18%)</span>
                   <span className="font-medium">
-                    ₹{orderTotal.gstAmount.toFixed(2)}
+                    ₹{calculation.gstAmount.toFixed(2)}
                   </span>
                 </div>
                 <Separator />
@@ -257,7 +296,7 @@ export default function Payment() {
                   </span>
                   <div className="text-right">
                     <div className="text-2xl font-bold text-gray-900">
-                      ₹{orderTotal.totalAmount.toFixed(2)}
+                      ₹{calculation.totalAmount.toFixed(2)}
                     </div>
                     <div className="text-sm text-gray-500">
                       (Including all taxes)
@@ -299,10 +338,10 @@ export default function Payment() {
               </div>
 
               {/* Error Alert */}
-              {error && (
+              {paymentState.error && (
                 <Alert variant="destructive">
                   <AlertCircle className="h-4 w-4" />
-                  <AlertDescription>{error}</AlertDescription>
+                  <AlertDescription>{paymentState.error}</AlertDescription>
                 </Alert>
               )}
 
@@ -314,7 +353,6 @@ export default function Payment() {
                   alt="Razorpay"
                   className="h-8 mx-auto"
                   onError={(e) => {
-                    // Fallback if image doesn't load
                     e.currentTarget.style.display = "none";
                     e.currentTarget.parentElement!.innerHTML = `
                       <div class="text-lg font-semibold text-primary">Razorpay</div>
@@ -326,11 +364,11 @@ export default function Payment() {
               {/* Pay Now Button */}
               <Button
                 onClick={handlePayNow}
-                disabled={processing}
+                disabled={paymentState.isProcessing}
                 className="w-full bg-gradient-to-r from-primary to-primary/80 hover:from-primary/90 hover:to-primary/70 text-white font-semibold py-6 text-lg"
                 size="lg"
               >
-                {processing ? (
+                {paymentState.isProcessing ? (
                   <>
                     <Loader2 className="h-5 w-5 mr-3 animate-spin" />
                     Processing Payment...
@@ -338,7 +376,7 @@ export default function Payment() {
                 ) : (
                   <>
                     <IndianRupee className="h-5 w-5 mr-2" />
-                    Pay ₹{orderTotal.totalAmount.toFixed(2)} Now
+                    Pay ₹{calculation.totalAmount.toFixed(2)} Now
                   </>
                 )}
               </Button>
@@ -408,11 +446,16 @@ export default function Payment() {
           </DialogHeader>
           <div className="text-center py-4">
             <div className="text-2xl font-bold text-green-600">
-              ₹{orderTotal.totalAmount.toFixed(2)}
+              ₹{calculation.totalAmount.toFixed(2)}
             </div>
             <div className="text-sm text-gray-500 mt-1">
               Transaction completed
             </div>
+            {paymentState.lastPaymentResult?.paymentId && (
+              <div className="text-xs text-gray-400 mt-2">
+                Payment ID: {paymentState.lastPaymentResult.paymentId}
+              </div>
+            )}
           </div>
         </DialogContent>
       </Dialog>
