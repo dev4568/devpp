@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useNavigate, Link } from "react-router-dom";
+import Swal from "sweetalert2";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -20,6 +21,9 @@ import {
 } from "@/components/ui/dialog";
 import { Mail, Lock, ArrowLeft, Eye, EyeOff } from "lucide-react";
 
+// Import API calls
+import { loginUser, forgotPassword } from "@/api/api";  // Your api file path
+
 export default function Login() {
   const navigate = useNavigate();
   const [formData, setFormData] = useState({
@@ -37,23 +41,34 @@ export default function Login() {
     setFormData((prev) => ({ ...prev, [name]: value }));
   };
 
+  // Handle Login
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsLoading(true);
 
-    // Simulate login
-    setTimeout(() => {
-      setIsLoading(false);
+    try {
+      const { token, user } = await loginUser(formData.email, formData.password);
+      // Store token in localStorage or handle as needed
+      localStorage.setItem('userToken', token);
+      // Navigate to dashboard or home page
       navigate("/dashboard");
-    }, 2000);
+      Swal.fire("Success", "Login successful!", "success");
+    } catch (error) {
+      Swal.fire("Error", error.message, "error");
+    } finally {
+      setIsLoading(false);
+    }
   };
 
+  // Handle Forgot Password
   const handleForgotPassword = async (e: React.FormEvent) => {
     e.preventDefault();
-    // Simulate sending reset email
-    setTimeout(() => {
+    try {
+      await forgotPassword(forgotPasswordEmail);  // Send reset link
       setForgotPasswordSent(true);
-    }, 1000);
+    } catch (error) {
+      Swal.fire("Error", error.message, "error");
+    }
   };
 
   return (
@@ -162,10 +177,7 @@ export default function Login() {
 
                 <div className="flex items-center justify-between text-sm">
                   <div></div>
-                  <Dialog
-                    open={showForgotPassword}
-                    onOpenChange={setShowForgotPassword}
-                  >
+                  <Dialog open={showForgotPassword} onOpenChange={setShowForgotPassword}>
                     <DialogTrigger asChild>
                       <Button variant="link" className="p-0 h-auto text-sm">
                         Forgot password?
@@ -187,9 +199,7 @@ export default function Login() {
                               type="email"
                               required
                               value={forgotPasswordEmail}
-                              onChange={(e) =>
-                                setForgotPasswordEmail(e.target.value)
-                              }
+                              onChange={(e) => setForgotPasswordEmail(e.target.value)}
                               placeholder="Enter your email address"
                             />
                           </div>
@@ -231,12 +241,7 @@ export default function Login() {
                   </Dialog>
                 </div>
 
-                <Button
-                  type="submit"
-                  className="w-full"
-                  size="lg"
-                  disabled={isLoading}
-                >
+                <Button type="submit" className="w-full" size="lg" disabled={isLoading}>
                   {isLoading ? "Signing In..." : "Sign In"}
                 </Button>
               </form>
