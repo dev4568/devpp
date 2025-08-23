@@ -19,11 +19,14 @@ import {
   IndianRupee,
   AlertCircle,
   ArrowLeft,
+  RefreshCw,
+  Eye,
 } from "lucide-react";
 import { DOCUMENT_TYPES } from "@shared/pricing";
 import { useDocuments } from "@/contexts/DocumentsContext";
 import { usePricing } from "@/contexts/PricingContext";
 import { usePayment } from "@/contexts/PaymentContext";
+import { alertUtils } from "@/utils/apiService";
 
 export default function Payment() {
   const navigate = useNavigate();
@@ -43,7 +46,8 @@ export default function Payment() {
         const user = JSON.parse(userData);
         setCustomerInfo(user);
       } catch (error) {
-        console.error("Error parsing user data:", error);
+        console.error('Error parsing user data:', error);
+        alertUtils.error('Invalid user data. Please sign up again.');
       }
     }
   }, []);
@@ -57,16 +61,16 @@ export default function Payment() {
     const initializePaymentFlow = async () => {
       try {
         const validFiles = documentsActions.getValidFiles();
-
+        
         if (validFiles.length > 0) {
           // Update pricing calculation
           pricingActions.updateOrderFromFiles(validFiles);
-
+          
           // Get the latest calculation
           const calculation = pricingActions.calculateFromFiles(validFiles);
-
+          
           // Create order items for payment
-          const orderItems = validFiles.map((file) => ({
+          const orderItems = validFiles.map(file => ({
             documentTypeId: file.documentTypeId,
             tier: file.tier,
             quantity: 1,
@@ -76,18 +80,15 @@ export default function Payment() {
 
           // Initialize payment with the customer info
           if (calculation.totalAmount > 0 && orderItems.length > 0) {
-            await paymentActions.initializePayment(
-              orderItems,
-              calculation,
-              customerInfo,
-            );
+            await paymentActions.initializePayment(orderItems, calculation, customerInfo);
           }
         } else {
           // Fallback: try to get payment details from URL params or localStorage
           handleFallbackPaymentInitialization();
         }
       } catch (error) {
-        console.error("Error in payment initialization:", error);
+        console.error('Error in payment initialization:', error);
+        alertUtils.error('Failed to initialize payment. Please try again.');
       }
     };
 
@@ -103,17 +104,15 @@ export default function Payment() {
     try {
       // Check for temp cost data
       const tempCostData = localStorage.getItem("udin_temp_cost");
-
+      
       if (tempCostData) {
         try {
           const costData = JSON.parse(tempCostData);
-          // This is simplified - in real implementation, you'd reconstruct the order items
-          console.log("Using temp cost data:", costData);
-          // For now, just show that temp data exists but don't initialize payment
-          // The user should go back to upload page to complete properly
+          console.log('Using temp cost data:', costData);
+          alertUtils.info('Using saved order data. Please ensure your documents are uploaded correctly.');
           return;
         } catch (error) {
-          console.error("Error parsing temp cost data:", error);
+          console.error('Error parsing temp cost data:', error);
         }
         return;
       }
@@ -123,61 +122,83 @@ export default function Payment() {
       const tier = searchParams.get("tier") || "Standard";
       const quantity = parseInt(searchParams.get("quantity") || "1");
 
-      const orderItems = [
-        {
-          documentTypeId: documentId,
-          tier,
-          quantity,
-        },
-      ];
+      const orderItems = [{
+        documentTypeId: documentId,
+        tier,
+        quantity,
+      }];
 
       // Create a mock file for calculation
       const mockFile = {
-        id: "temp",
-        name: "Fallback Document",
+        id: 'temp',
+        name: 'Fallback Document',
         size: 0,
-        type: "application/pdf",
-        status: "completed" as const,
+        type: 'application/pdf',
+        status: 'completed' as const,
         progress: 100,
         documentTypeId: documentId,
         tier,
-        file: new File([], "temp.pdf"),
+        file: new File([], 'temp.pdf'),
       };
 
       const calculation = pricingActions.calculateFromFiles([mockFile]);
 
       if (calculation.totalAmount > 0 && customerInfo) {
-        await paymentActions.initializePayment(
-          orderItems,
-          calculation,
-          customerInfo,
-        );
+        await paymentActions.initializePayment(orderItems, calculation, customerInfo);
       }
     } catch (error) {
-      console.error("Error in fallback payment initialization:", error);
+      console.error('Error in fallback payment initialization:', error);
+      alertUtils.error('Failed to prepare payment. Please go back to upload page.');
     }
   };
 
   const handlePayNow = async () => {
     try {
       const result = await paymentActions.processRazorpayPayment();
-
+      
       if (result.success) {
         // Save payment data
         paymentActions.savePaymentData(result);
-
+        
         // Show success dialog
         setShowSuccessDialog(true);
-
+        
         // Auto-redirect after success
         setTimeout(() => {
           navigate("/dashboard");
         }, 2000);
       } else {
-        console.error("Payment failed:", result.error);
+        console.error('Payment failed:', result.error);
+        // Error is already shown by the payment context
       }
     } catch (error) {
-      console.error("Payment processing error:", error);
+      console.error('Payment processing error:', error);
+      alertUtils.error('Payment processing failed. Please try again.');
+    }
+  };
+
+  const handleRetryPayment = async () => {
+    try {
+      await paymentActions.retryPayment();
+    } catch (error) {
+      console.error('Retry payment error:', error);
+      alertUtils.error('Failed to retry payment. Please refresh the page.');
+    }
+  };
+
+  const handleShowOrderSummary = () => {
+    pricingActions.showOrderSummary();
+  };
+
+  const handleGoBack = () => {
+    const confirmed = alertUtils.confirm(
+      'Are you sure you want to go back? Your payment session will be cleared.',
+      'Go Back?'
+    );
+    
+    if (confirmed) {
+      paymentActions.clearPayment();
+      navigate(-1);
     }
   };
 
@@ -193,9 +214,7 @@ export default function Payment() {
         <div className="text-center">
           <Loader2 className="h-12 w-12 text-primary mx-auto mb-4 animate-spin" />
           <p className="text-lg text-muted-foreground mb-4">
-            {paymentState.isProcessing
-              ? "Preparing your payment..."
-              : "Loading your documents..."}
+            {paymentState.isProcessing ? 'Preparing your payment...' : 'Loading your documents...'}
           </p>
           <p className="text-sm text-gray-500">
             Please wait while we set up your order
@@ -223,6 +242,7 @@ export default function Payment() {
               Go to Upload
             </Button>
             <Button variant="ghost" onClick={() => window.location.reload()}>
+              <RefreshCw className="h-4 w-4 mr-2" />
               Retry
             </Button>
           </div>
@@ -257,7 +277,7 @@ export default function Payment() {
             <Button
               variant="ghost"
               size="sm"
-              onClick={() => navigate(-1)}
+              onClick={handleGoBack}
               className="text-gray-600 hover:text-gray-900"
             >
               <ArrowLeft className="h-4 w-4 mr-2" />
@@ -287,6 +307,17 @@ export default function Payment() {
               <CardTitle className="text-2xl font-bold">
                 Payment Summary
               </CardTitle>
+              <div className="flex justify-center gap-2 mt-2">
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  onClick={handleShowOrderSummary}
+                  className="text-xs bg-white/20 hover:bg-white/30 border-0"
+                >
+                  <Eye className="h-3 w-3 mr-1" />
+                  View Details
+                </Button>
+              </div>
             </CardHeader>
 
             <CardContent className="space-y-6 p-6">
@@ -295,20 +326,14 @@ export default function Payment() {
                 <div className="flex justify-between items-center mb-3">
                   <h3 className="font-medium text-gray-900">Order Details</h3>
                   <Badge variant="outline">
-                    {orderSummary.totalDocuments} document
-                    {orderSummary.totalDocuments > 1 ? "s" : ""}
+                    {orderSummary.totalDocuments} document{orderSummary.totalDocuments > 1 ? 's' : ''}
                   </Badge>
                 </div>
-
+                
                 {validFiles.map((file) => {
-                  const docType = DOCUMENT_TYPES.find(
-                    (dt) => dt.id === file.documentTypeId,
-                  );
+                  const docType = DOCUMENT_TYPES.find(dt => dt.id === file.documentTypeId);
                   return (
-                    <div
-                      key={file.id}
-                      className="flex justify-between items-start"
-                    >
+                    <div key={file.id} className="flex justify-between items-start">
                       <div>
                         <h4 className="font-medium text-gray-900 text-sm">
                           {docType?.name}
@@ -330,17 +355,7 @@ export default function Payment() {
                       </div>
                       <div className="text-right">
                         <div className="font-medium text-sm">
-                          ₹
-                          {docType
-                            ? (
-                                docType.basePrice *
-                                (file.tier === "Express"
-                                  ? 1.5
-                                  : file.tier === "Premium"
-                                    ? 2.0
-                                    : 1.0)
-                              ).toFixed(2)
-                            : "0.00"}
+                          ₹{docType ? (docType.basePrice * (file.tier === 'Express' ? 1.5 : file.tier === 'Premium' ? 2.0 : 1.0)).toFixed(2) : '0.00'}
                         </div>
                       </div>
                     </div>
@@ -420,7 +435,18 @@ export default function Payment() {
               {paymentState.error && (
                 <Alert variant="destructive">
                   <AlertCircle className="h-4 w-4" />
-                  <AlertDescription>{paymentState.error}</AlertDescription>
+                  <AlertDescription>
+                    {paymentState.error}
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={handleRetryPayment}
+                      className="ml-2 h-6 text-xs"
+                    >
+                      <RefreshCw className="h-3 w-3 mr-1" />
+                      Retry
+                    </Button>
+                  </AlertDescription>
                 </Alert>
               )}
 
@@ -443,7 +469,7 @@ export default function Payment() {
               {/* Pay Now Button */}
               <Button
                 onClick={handlePayNow}
-                disabled={paymentState.isProcessing}
+                disabled={paymentState.isProcessing || !paymentState.currentPayment}
                 className="w-full bg-gradient-to-r from-primary to-primary/80 hover:from-primary/90 hover:to-primary/70 text-white font-semibold py-6 text-lg"
                 size="lg"
               >
