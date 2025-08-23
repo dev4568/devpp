@@ -176,18 +176,44 @@ export default function Payment() {
   const orderSummary = pricingActions.getOrderSummary();
   const validFiles = documentsActions.getValidFiles();
 
-  // Show loading if no payment is initialized or files are loading
-  if (!paymentState.currentPayment || documentsState.isLoading) {
+  // Show loading if payment is processing or documents are loading
+  if (paymentState.isProcessing || documentsState.isLoading) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-indigo-50 flex items-center justify-center p-4">
         <div className="text-center">
           <Loader2 className="h-12 w-12 text-primary mx-auto mb-4 animate-spin" />
           <p className="text-lg text-muted-foreground mb-4">
-            Preparing your payment...
+            {paymentState.isProcessing ? 'Preparing your payment...' : 'Loading your documents...'}
           </p>
           <p className="text-sm text-gray-500">
             Please wait while we set up your order
           </p>
+        </div>
+      </div>
+    );
+  }
+
+  // Show error if payment initialization failed
+  if (paymentState.error && !paymentState.currentPayment) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-indigo-50 flex items-center justify-center p-4">
+        <div className="text-center max-w-md">
+          <AlertCircle className="h-12 w-12 text-red-500 mx-auto mb-4" />
+          <p className="text-lg text-muted-foreground mb-4">
+            Payment Setup Failed
+          </p>
+          <Alert variant="destructive" className="mb-4">
+            <AlertCircle className="h-4 w-4" />
+            <AlertDescription>{paymentState.error}</AlertDescription>
+          </Alert>
+          <div className="space-y-2">
+            <Button variant="outline" onClick={() => navigate("/")}>
+              Go to Upload
+            </Button>
+            <Button variant="ghost" onClick={() => window.location.reload()}>
+              Retry
+            </Button>
+          </div>
         </div>
       </div>
     );
