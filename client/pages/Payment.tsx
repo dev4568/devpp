@@ -35,8 +35,8 @@ export default function Payment() {
   const { state: pricingState, actions: pricingActions } = usePricing();
   const { state: paymentState, actions: paymentActions } = usePayment();
 
+  // Initialize customer info once
   useEffect(() => {
-    // Initialize customer info from localStorage (from signup flow)
     const userData = localStorage.getItem("udin_user_data");
     if (userData) {
       try {
@@ -46,39 +46,49 @@ export default function Payment() {
         console.error('Error parsing user data:', error);
       }
     }
+  }, []);
 
-    // Initialize payment if we have valid files and pricing
+  // Initialize payment flow only when we have customer info and haven't already initialized
+  useEffect(() => {
+    if (!customerInfo || paymentState.currentPayment) {
+      return; // Don't initialize if no customer info or already initialized
+    }
+
     const initializePaymentFlow = async () => {
-      const validFiles = documentsActions.getValidFiles();
-      
-      if (validFiles.length > 0) {
-        // Update pricing calculation
-        pricingActions.updateOrderFromFiles(validFiles);
-        
-        // Get the latest calculation
-        const calculation = pricingActions.calculateFromFiles(validFiles);
-        
-        // Create order items for payment
-        const orderItems = validFiles.map(file => ({
-          documentTypeId: file.documentTypeId,
-          tier: file.tier,
-          quantity: 1,
-          fileName: file.name,
-          fileId: file.id,
-        }));
+      try {
+        const validFiles = documentsActions.getValidFiles();
 
-        // Initialize payment with the customer info
-        if (calculation.totalAmount > 0 && orderItems.length > 0) {
-          await paymentActions.initializePayment(orderItems, calculation, customerInfo);
+        if (validFiles.length > 0) {
+          // Update pricing calculation
+          pricingActions.updateOrderFromFiles(validFiles);
+
+          // Get the latest calculation
+          const calculation = pricingActions.calculateFromFiles(validFiles);
+
+          // Create order items for payment
+          const orderItems = validFiles.map(file => ({
+            documentTypeId: file.documentTypeId,
+            tier: file.tier,
+            quantity: 1,
+            fileName: file.name,
+            fileId: file.id,
+          }));
+
+          // Initialize payment with the customer info
+          if (calculation.totalAmount > 0 && orderItems.length > 0) {
+            await paymentActions.initializePayment(orderItems, calculation, customerInfo);
+          }
+        } else {
+          // Fallback: try to get payment details from URL params or localStorage
+          handleFallbackPaymentInitialization();
         }
-      } else {
-        // Fallback: try to get payment details from URL params or localStorage
-        handleFallbackPaymentInitialization();
+      } catch (error) {
+        console.error('Error in payment initialization:', error);
       }
     };
 
     initializePaymentFlow();
-  }, [documentsActions, pricingActions, paymentActions, customerInfo]);
+  }, [customerInfo]); // Only depend on customerInfo
 
   const handleFallbackPaymentInitialization = async () => {
     // Check for temp cost data

@@ -93,13 +93,24 @@ export function PaymentProvider({ children }: PaymentProviderProps) {
   }, []);
 
   const initializePayment = useCallback(async (
-    orderItems: OrderItem[], 
-    calculation: OrderCalculation, 
+    orderItems: OrderItem[],
+    calculation: OrderCalculation,
     customerInfo?: any
   ): Promise<void> => {
+    // Prevent multiple simultaneous initializations
+    if (state.isProcessing || state.currentPayment) {
+      console.log('Payment initialization already in progress or completed');
+      return;
+    }
+
     setState(prev => ({ ...prev, isProcessing: true, error: null }));
 
     try {
+      // Validate inputs
+      if (!orderItems.length || calculation.totalAmount <= 0) {
+        throw new Error('Invalid order items or amount');
+      }
+
       // Create payment details
       const paymentDetails: PaymentDetails = {
         amount: Math.round(calculation.totalAmount * 100), // Razorpay expects amount in paise
@@ -109,7 +120,10 @@ export function PaymentProvider({ children }: PaymentProviderProps) {
         customerInfo,
       };
 
-      // Call server to create Razorpay order
+      // Call server to create Razorpay order with timeout
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 second timeout
+
       const response = await fetch('/api/payment/create-order', {
         method: 'POST',
         headers: {
@@ -124,14 +138,22 @@ export function PaymentProvider({ children }: PaymentProviderProps) {
             customerEmail: customerInfo?.email || '',
           },
         }),
+        signal: controller.signal,
       });
 
+      clearTimeout(timeoutId);
+
       if (!response.ok) {
-        throw new Error('Failed to create payment order');
+        const errorText = await response.text();
+        throw new Error(`Failed to create payment order: ${response.status} ${errorText}`);
       }
 
       const orderData = await response.json();
-      
+
+      if (!orderData.id) {
+        throw new Error('Invalid order response from server');
+      }
+
       setState(prev => ({
         ...prev,
         currentPayment: {
@@ -143,13 +165,23 @@ export function PaymentProvider({ children }: PaymentProviderProps) {
 
     } catch (error) {
       console.error('Error initializing payment:', error);
+
+      let errorMessage = 'Failed to initialize payment';
+      if (error instanceof Error) {
+        if (error.name === 'AbortError') {
+          errorMessage = 'Payment initialization timed out. Please try again.';
+        } else {
+          errorMessage = error.message;
+        }
+      }
+
       setState(prev => ({
         ...prev,
-        error: error instanceof Error ? error.message : 'Failed to initialize payment',
+        error: errorMessage,
         isProcessing: false,
       }));
     }
-  }, []);
+  }, [state.isProcessing, state.currentPayment]);
 
   const processRazorpayPayment = useCallback(async (): Promise<PaymentResult> => {
     if (!state.currentPayment) {
