@@ -43,7 +43,7 @@ export default function Payment() {
         const user = JSON.parse(userData);
         setCustomerInfo(user);
       } catch (error) {
-        console.error('Error parsing user data:', error);
+        console.error("Error parsing user data:", error);
       }
     }
   }, []);
@@ -66,7 +66,7 @@ export default function Payment() {
           const calculation = pricingActions.calculateFromFiles(validFiles);
 
           // Create order items for payment
-          const orderItems = validFiles.map(file => ({
+          const orderItems = validFiles.map((file) => ({
             documentTypeId: file.documentTypeId,
             tier: file.tier,
             quantity: 1,
@@ -76,14 +76,18 @@ export default function Payment() {
 
           // Initialize payment with the customer info
           if (calculation.totalAmount > 0 && orderItems.length > 0) {
-            await paymentActions.initializePayment(orderItems, calculation, customerInfo);
+            await paymentActions.initializePayment(
+              orderItems,
+              calculation,
+              customerInfo,
+            );
           }
         } else {
           // Fallback: try to get payment details from URL params or localStorage
           handleFallbackPaymentInitialization();
         }
       } catch (error) {
-        console.error('Error in payment initialization:', error);
+        console.error("Error in payment initialization:", error);
       }
     };
 
@@ -104,12 +108,12 @@ export default function Payment() {
         try {
           const costData = JSON.parse(tempCostData);
           // This is simplified - in real implementation, you'd reconstruct the order items
-          console.log('Using temp cost data:', costData);
+          console.log("Using temp cost data:", costData);
           // For now, just show that temp data exists but don't initialize payment
           // The user should go back to upload page to complete properly
           return;
         } catch (error) {
-          console.error('Error parsing temp cost data:', error);
+          console.error("Error parsing temp cost data:", error);
         }
         return;
       }
@@ -119,55 +123,61 @@ export default function Payment() {
       const tier = searchParams.get("tier") || "Standard";
       const quantity = parseInt(searchParams.get("quantity") || "1");
 
-      const orderItems = [{
-        documentTypeId: documentId,
-        tier,
-        quantity,
-      }];
+      const orderItems = [
+        {
+          documentTypeId: documentId,
+          tier,
+          quantity,
+        },
+      ];
 
       // Create a mock file for calculation
       const mockFile = {
-        id: 'temp',
-        name: 'Fallback Document',
+        id: "temp",
+        name: "Fallback Document",
         size: 0,
-        type: 'application/pdf',
-        status: 'completed' as const,
+        type: "application/pdf",
+        status: "completed" as const,
         progress: 100,
         documentTypeId: documentId,
         tier,
-        file: new File([], 'temp.pdf'),
+        file: new File([], "temp.pdf"),
       };
 
       const calculation = pricingActions.calculateFromFiles([mockFile]);
 
       if (calculation.totalAmount > 0 && customerInfo) {
-        await paymentActions.initializePayment(orderItems, calculation, customerInfo);
+        await paymentActions.initializePayment(
+          orderItems,
+          calculation,
+          customerInfo,
+        );
       }
     } catch (error) {
-      console.error('Error in fallback payment initialization:', error);
+      console.error("Error in fallback payment initialization:", error);
     }
   };
 
   const handlePayNow = async () => {
     try {
       const result = await paymentActions.processRazorpayPayment();
-      
+
       if (result.success) {
         // Save payment data
         paymentActions.savePaymentData(result);
-        
+
         // Show success dialog
         setShowSuccessDialog(true);
-        
+
         // Auto-redirect after success
         setTimeout(() => {
           navigate("/dashboard");
         }, 2000);
       } else {
-        console.error('Payment failed:', result.error);
+        console.error("Payment failed:", result.error);
       }
     } catch (error) {
-      console.error('Payment processing error:', error);
+      console.error("Payment processing error:", error);
     }
   };
 
@@ -183,7 +193,9 @@ export default function Payment() {
         <div className="text-center">
           <Loader2 className="h-12 w-12 text-primary mx-auto mb-4 animate-spin" />
           <p className="text-lg text-muted-foreground mb-4">
-            {paymentState.isProcessing ? 'Preparing your payment...' : 'Loading your documents...'}
+            {paymentState.isProcessing
+              ? "Preparing your payment..."
+              : "Loading your documents..."}
           </p>
           <p className="text-sm text-gray-500">
             Please wait while we set up your order
@@ -283,14 +295,20 @@ export default function Payment() {
                 <div className="flex justify-between items-center mb-3">
                   <h3 className="font-medium text-gray-900">Order Details</h3>
                   <Badge variant="outline">
-                    {orderSummary.totalDocuments} document{orderSummary.totalDocuments > 1 ? 's' : ''}
+                    {orderSummary.totalDocuments} document
+                    {orderSummary.totalDocuments > 1 ? "s" : ""}
                   </Badge>
                 </div>
-                
+
                 {validFiles.map((file) => {
-                  const docType = DOCUMENT_TYPES.find(dt => dt.id === file.documentTypeId);
+                  const docType = DOCUMENT_TYPES.find(
+                    (dt) => dt.id === file.documentTypeId,
+                  );
                   return (
-                    <div key={file.id} className="flex justify-between items-start">
+                    <div
+                      key={file.id}
+                      className="flex justify-between items-start"
+                    >
                       <div>
                         <h4 className="font-medium text-gray-900 text-sm">
                           {docType?.name}
@@ -312,7 +330,17 @@ export default function Payment() {
                       </div>
                       <div className="text-right">
                         <div className="font-medium text-sm">
-                          ₹{docType ? (docType.basePrice * (file.tier === 'Express' ? 1.5 : file.tier === 'Premium' ? 2.0 : 1.0)).toFixed(2) : '0.00'}
+                          ₹
+                          {docType
+                            ? (
+                                docType.basePrice *
+                                (file.tier === "Express"
+                                  ? 1.5
+                                  : file.tier === "Premium"
+                                    ? 2.0
+                                    : 1.0)
+                              ).toFixed(2)
+                            : "0.00"}
                         </div>
                       </div>
                     </div>

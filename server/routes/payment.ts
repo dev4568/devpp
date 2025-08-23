@@ -3,7 +3,8 @@ import crypto from "crypto";
 
 // In production, these should come from environment variables
 const RAZORPAY_KEY_ID = process.env.RAZORPAY_KEY_ID || "rzp_test_your_key_here";
-const RAZORPAY_KEY_SECRET = process.env.RAZORPAY_KEY_SECRET || "your_secret_here";
+const RAZORPAY_KEY_SECRET =
+  process.env.RAZORPAY_KEY_SECRET || "your_secret_here";
 
 interface CreateOrderRequest {
   amount: number;
@@ -27,32 +28,36 @@ export const createOrder: RequestHandler = async (req, res) => {
     if (!amount || !currency || !receipt) {
       return res.status(400).json({
         success: false,
-        error: "Missing required fields: amount, currency, receipt"
+        error: "Missing required fields: amount, currency, receipt",
       });
     }
 
     // Validate amount (should be positive integer in paise)
-    if (typeof amount !== 'number' || amount <= 0 || !Number.isInteger(amount)) {
+    if (
+      typeof amount !== "number" ||
+      amount <= 0 ||
+      !Number.isInteger(amount)
+    ) {
       return res.status(400).json({
         success: false,
-        error: "Amount should be a positive integer in paise"
+        error: "Amount should be a positive integer in paise",
       });
     }
 
     // Validate currency
-    if (currency !== 'INR') {
+    if (currency !== "INR") {
       return res.status(400).json({
         success: false,
-        error: "Only INR currency is supported"
+        error: "Only INR currency is supported",
       });
     }
 
     // In a real application, you would use the Razorpay SDK
     // For now, we'll simulate the order creation
-    
+
     // Mock Razorpay order response
     const order = {
-      id: `order_${crypto.randomBytes(16).toString('hex')}`,
+      id: `order_${crypto.randomBytes(16).toString("hex")}`,
       entity: "order",
       amount: amount,
       amount_paid: 0,
@@ -63,23 +68,22 @@ export const createOrder: RequestHandler = async (req, res) => {
       status: "created",
       attempts: 0,
       notes: notes || {},
-      created_at: Math.floor(Date.now() / 1000)
+      created_at: Math.floor(Date.now() / 1000),
     };
 
     // Store order details in database/storage (for demo, we'll use in-memory)
     // In production, store this in your database
-    console.log('Created Razorpay order:', order);
+    console.log("Created Razorpay order:", order);
 
     res.json({
       success: true,
-      ...order
+      ...order,
     });
-
   } catch (error) {
-    console.error('Error creating Razorpay order:', error);
+    console.error("Error creating Razorpay order:", error);
     res.status(500).json({
       success: false,
-      error: "Failed to create payment order"
+      error: "Failed to create payment order",
     });
   }
 };
@@ -93,22 +97,22 @@ export const verifyPayment: RequestHandler = async (req, res) => {
     if (!paymentId || !orderId || !signature) {
       return res.status(400).json({
         success: false,
-        error: "Missing required fields: paymentId, orderId, signature"
+        error: "Missing required fields: paymentId, orderId, signature",
       });
     }
 
     // Verify the signature
     const expectedSignature = crypto
-      .createHmac('sha256', RAZORPAY_KEY_SECRET)
+      .createHmac("sha256", RAZORPAY_KEY_SECRET)
       .update(`${orderId}|${paymentId}`)
-      .digest('hex');
+      .digest("hex");
 
     const isSignatureValid = expectedSignature === signature;
 
     if (!isSignatureValid) {
       return res.status(400).json({
         success: false,
-        error: "Invalid payment signature"
+        error: "Invalid payment signature",
       });
     }
 
@@ -117,25 +121,24 @@ export const verifyPayment: RequestHandler = async (req, res) => {
     // 2. Update the order status to 'paid'
     // 3. Trigger any post-payment workflows (email notifications, etc.)
 
-    console.log('Payment verified successfully:', {
+    console.log("Payment verified successfully:", {
       paymentId,
       orderId,
       signature,
-      timestamp: new Date().toISOString()
+      timestamp: new Date().toISOString(),
     });
 
     res.json({
       success: true,
       message: "Payment verified successfully",
       paymentId,
-      orderId
+      orderId,
     });
-
   } catch (error) {
-    console.error('Error verifying payment:', error);
+    console.error("Error verifying payment:", error);
     res.status(500).json({
       success: false,
-      error: "Failed to verify payment"
+      error: "Failed to verify payment",
     });
   }
 };
@@ -148,7 +151,7 @@ export const getPaymentStatus: RequestHandler = async (req, res) => {
     if (!paymentId) {
       return res.status(400).json({
         success: false,
-        error: "Payment ID is required"
+        error: "Payment ID is required",
       });
     }
 
@@ -165,19 +168,18 @@ export const getPaymentStatus: RequestHandler = async (req, res) => {
       captured: true,
       email: "customer@example.com",
       contact: "+919999999999",
-      created_at: Math.floor(Date.now() / 1000)
+      created_at: Math.floor(Date.now() / 1000),
     };
 
     res.json({
       success: true,
-      payment: paymentStatus
+      payment: paymentStatus,
     });
-
   } catch (error) {
-    console.error('Error fetching payment status:', error);
+    console.error("Error fetching payment status:", error);
     res.status(500).json({
       success: false,
-      error: "Failed to fetch payment status"
+      error: "Failed to fetch payment status",
     });
   }
 };
@@ -185,19 +187,19 @@ export const getPaymentStatus: RequestHandler = async (req, res) => {
 // Webhook handler for Razorpay events
 export const handleWebhook: RequestHandler = async (req, res) => {
   try {
-    const webhookSignature = req.headers['x-razorpay-signature'] as string;
+    const webhookSignature = req.headers["x-razorpay-signature"] as string;
     const webhookBody = JSON.stringify(req.body);
 
     // Verify webhook signature
     const expectedSignature = crypto
-      .createHmac('sha256', RAZORPAY_KEY_SECRET)
+      .createHmac("sha256", RAZORPAY_KEY_SECRET)
       .update(webhookBody)
-      .digest('hex');
+      .digest("hex");
 
     if (webhookSignature !== expectedSignature) {
       return res.status(400).json({
         success: false,
-        error: "Invalid webhook signature"
+        error: "Invalid webhook signature",
       });
     }
 
@@ -205,32 +207,31 @@ export const handleWebhook: RequestHandler = async (req, res) => {
 
     // Handle different webhook events
     switch (event.event) {
-      case 'payment.captured':
-        console.log('Payment captured:', event.payload.payment.entity);
+      case "payment.captured":
+        console.log("Payment captured:", event.payload.payment.entity);
         // Handle successful payment
         break;
-      
-      case 'payment.failed':
-        console.log('Payment failed:', event.payload.payment.entity);
+
+      case "payment.failed":
+        console.log("Payment failed:", event.payload.payment.entity);
         // Handle failed payment
         break;
 
-      case 'order.paid':
-        console.log('Order paid:', event.payload.order.entity);
+      case "order.paid":
+        console.log("Order paid:", event.payload.order.entity);
         // Handle order completion
         break;
 
       default:
-        console.log('Unhandled webhook event:', event.event);
+        console.log("Unhandled webhook event:", event.event);
     }
 
     res.json({ success: true });
-
   } catch (error) {
-    console.error('Error handling webhook:', error);
+    console.error("Error handling webhook:", error);
     res.status(500).json({
       success: false,
-      error: "Webhook processing failed"
+      error: "Webhook processing failed",
     });
   }
 };
@@ -242,19 +243,19 @@ export const getConfig: RequestHandler = async (req, res) => {
       success: true,
       config: {
         keyId: RAZORPAY_KEY_ID,
-        currency: 'INR',
-        companyName: 'UDIN Professional Services',
-        companyLogo: '/logo.png', // Add your logo URL
+        currency: "INR",
+        companyName: "UDIN Professional Services",
+        companyLogo: "/logo.png", // Add your logo URL
         theme: {
-          color: '#8B5CF6' // Primary color
-        }
-      }
+          color: "#8B5CF6", // Primary color
+        },
+      },
     });
   } catch (error) {
-    console.error('Error getting config:', error);
+    console.error("Error getting config:", error);
     res.status(500).json({
       success: false,
-      error: "Failed to get configuration"
+      error: "Failed to get configuration",
     });
   }
 };

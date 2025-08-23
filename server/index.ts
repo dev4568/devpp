@@ -7,7 +7,7 @@ import {
   verifyPayment,
   getPaymentStatus,
   handleWebhook,
-  getConfig
+  getConfig,
 } from "./routes/payment";
 
 export function createServer() {
