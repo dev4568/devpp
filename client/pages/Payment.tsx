@@ -199,7 +199,6 @@ export default function Payment() {
   const [showUploadDialog, setShowUploadDialog] = useState(false);
   const [isFetchingIndexed, setIsFetchingIndexed] = useState(false);
   const [indexedFiles, setIndexedFiles] = useState<IndexedFile[]>([]);
-  const [indexedMeta, setIndexedMeta] = useState<IndexedMeta>({});
   const [uploadProgress, setUploadProgress] = useState(0);
 
   // Final success modal
