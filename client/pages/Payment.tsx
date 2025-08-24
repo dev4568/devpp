@@ -302,9 +302,6 @@ export default function Payment() {
       ? pricingState.calculation.totalAmount
       : subtotal + gstAmount;
 
-  const BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://localhost:5000";
-
-  /* ---------- Real payment flow (with frontend popup) ---------- */
   /* ---------- Real payment flow (with frontend popup) ---------- */
   const handlePayNow = async () => {
     setFatalError(null);
@@ -313,78 +310,24 @@ export default function Payment() {
       // Load Razorpay SDK
       await loadRazorpayScript();
 
-      // 1) Create Razorpay order
-
-      /*     const { orderId, amount, currency, razorpayKeyId } = await jsonFetch<{
-      orderId: string;
-      amount: number;   // paise
-      currency: string; // "INR"
-      razorpayKeyId: string;
-    }>(`${BASE_URL}/api/payments/order`, {
-      method: "POST",
-      body: JSON.stringify({
-        amount: totalAmount, 
-        notes: {
-          customerEmail: customerInfo?.email,
-          customerName: customerInfo?.name,
-        },
-        items,
-      }),
-    });
- */
-      // 2) Create a pending transaction
-      /*     const { transactionId } = await jsonFetch<{ transactionId: string }>(
-      `${BASE_URL}/transactions`,
-      {
-        method: "POST",
-        body: JSON.stringify({
-          orderId,
-          amount: totalAmount,
-          currency,
-          status: "pending",
-          items,
-          customer: customerInfo,
-          tax: { rate: taxRate, gstAmount },
-          subtotal,
-        }),
+      // Initialize payment using context
+      await paymentActions.initializePayment(
+        itemsFromOrder,
+        pricingState.calculation,
+        customerInfo
+      );
+      
+      // Process payment
+      const paymentResult = await paymentActions.processRazorpayPayment();
+      
+      if (!paymentResult.success) {
+        throw new Error(paymentResult.error || "Payment failed");
       }
-    );
- */
-      // 3) Open Razorpay popup
-      /*     const resp = await openRazorpayCheckout({
-      key: razorpayKeyId,
-      orderId,
-      amountPaise: amount,
-      currency,
-      customer: {
-        name: customerInfo?.name,
-        email: customerInfo?.email,
-        contact: customerInfo?.phone,
-      },
-      notes: { transactionId },
-    });
- */
-      // 4) Verify payment on backend
-      /*     const verify = await jsonFetch<{ verified: boolean }>(`${BASE_URL}/payments/verify`, {
-      method: "POST",
-      body: JSON.stringify({
-        orderId: resp.razorpay_order_id,
-        paymentId: resp.razorpay_payment_id,
-        signature: resp.razorpay_signature,
-      }),
-    });
-    if (!verify.verified) throw new Error("Payment verification failed");
- */
-      // 5) Mark transaction as paid
-      /*     await jsonFetch(`${BASE_URL}/transactions/${transactionId}/status`, {
-      method: "PATCH",
-      body: JSON.stringify({
-        status: "paid",
-        paymentId: resp.razorpay_payment_id,
-      }),
-    });
- */
-      // 6) Upload files
+      
+      // Save payment data
+      paymentActions.savePaymentData(paymentResult);
+      
+      // Upload files after successful payment
       setShowUploadDialog(true);
       setIsFetchingIndexed(true);
 
@@ -427,15 +370,23 @@ export default function Payment() {
           gstAmount,
           totalAmount,
           taxRate,
+          paymentId: paymentResult.paymentId,
+          orderId: paymentResult.orderId,
         },
-        {}, // metadata
+        {
+          paymentResult,
+          timestamp: new Date().toISOString(),
+        },
         (progress) => setUploadProgress(progress),
       );
 
       console.log("Upload completed:", uploadResult);
 
-      // 7) Clear IndexedDB after successful upload
+      // Clear IndexedDB after successful upload
       await clearIndexedDBFiles();
+      
+      // Clear documents context
+      documentsActions.clearAllFiles();
 
       // Success
       setShowUploadDialog(false);
@@ -446,6 +397,9 @@ export default function Payment() {
       setShowUploadDialog(false);
     }
   };
+  
+  // Import payment actions from context
+  const { actions: paymentActions } = usePayment();
 
   /* ---------- Loading / error screens ---------- */
   if (paymentState.isProcessing || documentsState.isLoading) {
