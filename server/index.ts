@@ -9,6 +9,11 @@ import {
   handleWebhook,
   getConfig,
 } from "./routes/payment";
+import {
+  uploadFiles,
+  getUploadStatus,
+  getUserUploads,
+} from "./routes/uploads";
 
 export function createServer() {
   const app = express();
