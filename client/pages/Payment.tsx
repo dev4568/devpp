@@ -282,15 +282,9 @@ export default function Payment() {
       ? pricingState.calculation.subtotal
       : items.reduce((s: number, it: any) => s + (Number(it.price) || 0), 0);
 
-  const taxRate =
-    typeof pricingState?.calculation?.taxRate === "number"
-      ? pricingState.calculation.taxRate
-      : 0.18;
+  const taxRate = 0.18; // 18% GST - fixed rate
 
-  const gstAmount =
-    typeof pricingState?.calculation?.taxAmount === "number"
-      ? pricingState.calculation.taxAmount
-      : Math.round(subtotal * taxRate);
+  const gstAmount = pricingState?.calculation?.gstAmount || Math.round(subtotal * taxRate);
 
   const totalAmount =
     typeof pricingState?.calculation?.totalAmount === "number"
