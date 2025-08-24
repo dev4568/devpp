@@ -6,6 +6,7 @@ import React, {
   ReactNode,
 } from "react";
 import { OrderCalculation, OrderItem } from "./PricingContext";
+import { createPaymentOrder, verifyPayment } from "@/api/api";
 
 export interface PaymentDetails {
   orderId?: string;
@@ -133,37 +134,17 @@ export function PaymentProvider({ children }: PaymentProviderProps) {
           customerInfo,
         };
 
-        // Call server to create Razorpay order with timeout
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 second timeout
-
-        const response = await fetch("/api/payment/create-order", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
+        // Call external server to create Razorpay order
+        const orderData = await createPaymentOrder({
+          amount: paymentDetails.amount,
+          currency: paymentDetails.currency,
+          receipt: `receipt_${Date.now()}`,
+          notes: {
+            orderItemsCount: orderItems.length,
+            customerEmail: customerInfo?.email || "",
+            customerName: customerInfo?.name || "",
           },
-          body: JSON.stringify({
-            amount: paymentDetails.amount,
-            currency: paymentDetails.currency,
-            receipt: `receipt_${Date.now()}`,
-            notes: {
-              orderItemsCount: orderItems.length,
-              customerEmail: customerInfo?.email || "",
-            },
-          }),
-          signal: controller.signal,
         });
-
-        clearTimeout(timeoutId);
-
-        if (!response.ok) {
-          const errorText = await response.text();
-          throw new Error(
-            `Failed to create payment order: ${response.status} ${errorText}`,
-          );
-        }
-
-        const orderData = await response.json();
 
         if (!orderData.id) {
           throw new Error("Invalid order response from server");
@@ -182,12 +163,7 @@ export function PaymentProvider({ children }: PaymentProviderProps) {
 
         let errorMessage = "Failed to initialize payment";
         if (error instanceof Error) {
-          if (error.name === "AbortError") {
-            errorMessage =
-              "Payment initialization timed out. Please try again.";
-          } else {
-            errorMessage = error.message;
-          }
+          errorMessage = error.message;
         }
 
         setState((prev) => ({
@@ -216,8 +192,12 @@ export function PaymentProvider({ children }: PaymentProviderProps) {
         }
 
         return new Promise((resolve) => {
-          // Get Razorpay configuration
-          const razorpayKey = "rzp_test_your_key_here"; // In production, get this from server config
+          // Get Razorpay configuration from environment
+          const razorpayKey = import.meta.env.VITE_RAZORPAY_KEY_ID;
+          
+          if (!razorpayKey) {
+            throw new Error("Razorpay configuration not found");
+          }
 
           const options = {
             key: razorpayKey,
@@ -228,27 +208,12 @@ export function PaymentProvider({ children }: PaymentProviderProps) {
             order_id: state.currentPayment!.orderId,
             handler: async function (response: any) {
               try {
-                // Verify payment on server
-                const verificationResponse = await fetch(
-                  "/api/payment/verify",
-                  {
-                    method: "POST",
-                    headers: {
-                      "Content-Type": "application/json",
-                    },
-                    body: JSON.stringify({
-                      paymentId: response.razorpay_payment_id,
-                      orderId: response.razorpay_order_id,
-                      signature: response.razorpay_signature,
-                    }),
-                  },
-                );
-
-                if (!verificationResponse.ok) {
-                  throw new Error("Payment verification failed");
-                }
-
-                const verificationResult = await verificationResponse.json();
+                // Verify payment on external server
+                const verificationResult = await verifyPayment({
+                  paymentId: response.razorpay_payment_id,
+                  orderId: response.razorpay_order_id,
+                  signature: response.razorpay_signature,
+                });
 
                 if (verificationResult.success) {
                   const paymentResult: PaymentResult = {

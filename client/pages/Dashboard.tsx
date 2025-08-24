@@ -64,6 +64,8 @@ import {
   PaginationNext,
   PaginationPrevious,
 } from "@/components/ui/pagination";
+import { getUserDocuments, downloadDocument } from "@/api/api";
+import { useEffect } from "react";
 
 interface Document {
   id: string;
@@ -112,160 +114,79 @@ export default function Dashboard() {
   // Pagination state
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage] = useState(10);
+  
+  // Loading and error states
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
-  const [documents] = useState<Document[]>([
-    {
-      id: "1",
-      name: "Contract_Agreement.pdf",
-      type: "PDF",
-      uploadDate: "2024-01-15",
-      status: "downloaded_by_admin",
-      size: "2.4 MB",
-      category: "contracts",
-      downloadedByAdmin: true,
-      adminDownloadDate: "2024-01-16",
-      canEdit: false,
-      canDelete: false,
-      userId: "user-001",
-    },
-    {
-      id: "2",
-      name: "Financial_Statement.docx",
-      type: "DOCX",
-      uploadDate: "2024-01-14",
-      status: "signed_document_uploaded",
-      size: "1.8 MB",
-      category: "financial-records",
-      downloadedByAdmin: true,
-      adminDownloadDate: "2024-01-15",
-      signedDocumentUrl: "/signed/Financial_Statement_signed.pdf",
-      signedDocumentUploadDate: "2024-01-16",
-      canEdit: false,
-      canDelete: false,
-      userId: "user-001",
-    },
-    {
-      id: "3",
-      name: "Project_Proposal.pdf",
-      type: "PDF",
-      uploadDate: "2024-01-13",
-      status: "processing",
-      size: "3.2 MB",
-      category: "business-documents",
-      canEdit: true,
-      canDelete: true,
-      userId: "user-001",
-    },
-    {
-      id: "4",
-      name: "Terms_Conditions.txt",
-      type: "TXT",
-      uploadDate: "2024-01-12",
-      status: "error",
-      size: "45 KB",
-      category: "legal-documents",
-      canEdit: true,
-      canDelete: true,
-      userId: "user-001",
-    },
-    {
-      id: "5",
-      name: "Invoice_2024.pdf",
-      type: "PDF",
-      uploadDate: "2024-01-11",
-      status: "completed",
-      size: "890 KB",
-      category: "financial-records",
-      canEdit: true,
-      canDelete: true,
-      userId: "user-001",
-    },
-    // Add more documents for pagination demo
-    {
-      id: "6",
-      name: "Report_Q1_2024.pdf",
-      type: "PDF",
-      uploadDate: "2024-01-10",
-      status: "completed",
-      size: "1.2 MB",
-      category: "business-documents",
-      canEdit: true,
-      canDelete: true,
-      userId: "user-001",
-    },
-    {
-      id: "7",
-      name: "Legal_Notice.docx",
-      type: "DOCX",
-      uploadDate: "2024-01-09",
-      status: "processing",
-      size: "750 KB",
-      category: "legal-documents",
-      canEdit: true,
-      canDelete: true,
-      userId: "user-001",
-    },
-    {
-      id: "8",
-      name: "Budget_2024.xlsx",
-      type: "XLSX",
-      uploadDate: "2024-01-08",
-      status: "completed",
-      size: "2.1 MB",
-      category: "financial-records",
-      canEdit: true,
-      canDelete: true,
-      userId: "user-001",
-    },
-    {
-      id: "9",
-      name: "Meeting_Notes.txt",
-      type: "TXT",
-      uploadDate: "2024-01-07",
-      status: "processing",
-      size: "85 KB",
-      category: "business-documents",
-      canEdit: true,
-      canDelete: true,
-      userId: "user-001",
-    },
-    {
-      id: "10",
-      name: "Insurance_Policy.pdf",
-      type: "PDF",
-      uploadDate: "2024-01-06",
-      status: "completed",
-      size: "1.5 MB",
-      category: "insurance-papers",
-      canEdit: true,
-      canDelete: true,
-      userId: "user-001",
-    },
-    {
-      id: "11",
-      name: "Employment_Contract.pdf",
-      type: "PDF",
-      uploadDate: "2024-01-05",
-      status: "completed",
-      size: "980 KB",
-      category: "legal-documents",
-      canEdit: true,
-      canDelete: true,
-      userId: "user-001",
-    },
-    {
-      id: "12",
-      name: "Tax_Return_2023.pdf",
-      type: "PDF",
-      uploadDate: "2024-01-04",
-      status: "processing",
-      size: "3.8 MB",
-      category: "tax-documents",
-      canEdit: true,
-      canDelete: true,
-      userId: "user-001",
-    },
-  ]);
+  const [documents, setDocuments] = useState<Document[]>([]);
+  
+  // Load documents from external server
+  useEffect(() => {
+    const loadDocuments = async () => {
+      try {
+        setIsLoading(true);
+        setError(null);
+        
+        // Get user ID from localStorage or token
+        const userData = localStorage.getItem('udin_user_data');
+        const userToken = localStorage.getItem('userToken');
+        
+        let userId = null;
+        if (userData) {
+          const parsedData = JSON.parse(userData);
+          userId = parsedData.userId;
+        }
+        
+        if (!userId && !userToken) {
+          // Redirect to login if no user data
+          navigate('/login');
+          return;
+        }
+        
+        // Fetch documents from external server
+        const response = await getUserDocuments(userId || 'current', {
+          status: statusFilter,
+          type: typeFilter,
+          category: categoryFilter,
+          date: dateFilter,
+          search: searchTerm,
+        });
+        
+        if (response.success) {
+          setDocuments(response.documents || []);
+        } else {
+          throw new Error(response.error || 'Failed to load documents');
+        }
+      } catch (error: any) {
+        console.error('Error loading documents:', error);
+        setError(error.message || 'Failed to load documents');
+        
+        // Fallback to mock data for development
+        setDocuments([
+          {
+            id: "1",
+            name: "Contract_Agreement.pdf",
+            type: "PDF",
+            uploadDate: "2024-01-15",
+            status: "downloaded_by_admin",
+            size: "2.4 MB",
+            category: "contracts",
+            downloadedByAdmin: true,
+            adminDownloadDate: "2024-01-16",
+            canEdit: false,
+            canDelete: false,
+            userId: "user-001",
+          },
+          // ... other mock documents
+        ]);
+      } finally {
+        setIsLoading(false);
+      }
+    };
+    
+    loadDocuments();
+  }, [statusFilter, typeFilter, categoryFilter, dateFilter, searchTerm, navigate]);
 
   const filteredDocuments = documents.filter((doc) => {
     const matchesSearch = doc.name
@@ -511,8 +432,14 @@ export default function Dashboard() {
   };
 
   const handleDownload = (document: Document) => {
-    // Simulate download
-    console.log("Downloading:", document.name);
+    downloadDocument(document.id, 'original')
+      .then(() => {
+        console.log("Downloaded:", document.name);
+      })
+      .catch((error) => {
+        console.error("Download failed:", error);
+        alert("Failed to download document. Please try again.");
+      });
   };
 
   const handleEdit = (document: Document) => {
@@ -538,12 +465,47 @@ export default function Dashboard() {
   };
 
   const handleDownloadSigned = (document: Document) => {
-    if (document.signedDocumentUrl) {
-      console.log("Downloading signed document:", document.signedDocumentUrl);
-      // Simulate download
-      alert("Downloading signed document...");
-    }
+    downloadDocument(document.id, 'signed')
+      .then(() => {
+        console.log("Downloaded signed document for:", document.name);
+      })
+      .catch((error) => {
+        console.error("Signed document download failed:", error);
+        alert("Failed to download signed document. Please try again.");
+      });
   };
+  
+  // Show loading state
+  if (isLoading) {
+    return (
+      <Layout title="Document Management">
+        <div className="flex items-center justify-center py-12">
+          <div className="text-center">
+            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto mb-4"></div>
+            <p className="text-gray-600">Loading your documents...</p>
+          </div>
+        </div>
+      </Layout>
+    );
+  }
+  
+  // Show error state
+  if (error) {
+    return (
+      <Layout title="Document Management">
+        <div className="text-center py-12">
+          <AlertCircle className="mx-auto h-12 w-12 text-red-500 mb-4" />
+          <h3 className="text-lg font-medium text-gray-900 mb-2">
+            Failed to Load Documents
+          </h3>
+          <p className="text-gray-500 mb-4">{error}</p>
+          <Button onClick={() => window.location.reload()}>
+            Try Again
+          </Button>
+        </div>
+      </Layout>
+    );
+  }
 
   return (
     <Layout title="Document Management">

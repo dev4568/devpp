@@ -57,6 +57,8 @@ import {
   AlertCircle,
   Clock,
 } from "lucide-react";
+import { getUserTransactions } from "@/api/api";
+import { useEffect } from "react";
 
 interface Transaction {
   id: string;
@@ -78,83 +80,74 @@ export default function Transactions() {
   const [selectedTransaction, setSelectedTransaction] =
     useState<Transaction | null>(null);
   const [isDetailsOpen, setIsDetailsOpen] = useState(false);
+  
+  // Loading and error states
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
-  const [transactions] = useState<Transaction[]>([
-    {
-      id: "txn_001",
-      date: "2024-01-15T10:30:00Z",
-      description: "Document Processing - Contract Analysis",
-      amount: 2950.0,
-      status: "completed",
-      type: "document_processing",
-      paymentMethod: "credit_card",
-      invoiceId: "INV-2024-001",
-      documents: ["Contract_Agreement.pdf", "Terms_Conditions.pdf"],
-    },
-    {
-      id: "txn_002",
-      date: "2024-01-14T15:45:00Z",
-      description: "Premium Subscription - Monthly",
-      amount: 1770.0,
-      status: "completed",
-      type: "subscription",
-      paymentMethod: "credit_card",
-      invoiceId: "INV-2024-002",
-    },
-    {
-      id: "txn_003",
-      date: "2024-01-12T09:15:00Z",
-      description: "Document Processing - Financial Statement",
-      amount: 15.0,
-      status: "completed",
-      type: "document_processing",
-      paymentMethod: "paypal",
-      invoiceId: "INV-2024-003",
-      documents: ["Financial_Statement.docx"],
-    },
-    {
-      id: "txn_004",
-      date: "2024-01-10T14:20:00Z",
-      description: "Refund - Processing Error",
-      amount: -10.0,
-      status: "completed",
-      type: "refund",
-      paymentMethod: "credit_card",
-      invoiceId: "REF-2024-001",
-    },
-    {
-      id: "txn_005",
-      date: "2024-01-08T11:30:00Z",
-      description: "Document Processing - Legal Review",
-      amount: 35.0,
-      status: "pending",
-      type: "document_processing",
-      paymentMethod: "bank_transfer",
-      invoiceId: "INV-2024-004",
-      documents: ["Legal_Document.pdf", "Contract_v2.pdf"],
-    },
-    {
-      id: "txn_006",
-      date: "2024-01-05T16:45:00Z",
-      description: "Account Credit Bonus",
-      amount: 5.0,
-      status: "completed",
-      type: "credit",
-      paymentMethod: "credit_card",
-      invoiceId: "CRD-2024-001",
-    },
-    {
-      id: "txn_007",
-      date: "2024-01-03T13:20:00Z",
-      description: "Document Processing - Invoice Analysis",
-      amount: 20.0,
-      status: "failed",
-      type: "document_processing",
-      paymentMethod: "credit_card",
-      invoiceId: "INV-2024-005",
-      documents: ["Invoice_2024.pdf"],
-    },
-  ]);
+  const [transactions, setTransactions] = useState<Transaction[]>([]);
+  
+  // Load transactions from external server
+  useEffect(() => {
+    const loadTransactions = async () => {
+      try {
+        setIsLoading(true);
+        setError(null);
+        
+        // Get user ID from localStorage or token
+        const userData = localStorage.getItem('udin_user_data');
+        const userToken = localStorage.getItem('userToken');
+        
+        let userId = null;
+        if (userData) {
+          const parsedData = JSON.parse(userData);
+          userId = parsedData.userId;
+        }
+        
+        if (!userId && !userToken) {
+          // Use current user endpoint if no specific user ID
+          userId = 'current';
+        }
+        
+        // Fetch transactions from external server
+        const response = await getUserTransactions(userId, {
+          status: statusFilter,
+          type: typeFilter,
+          date: dateFilter,
+          search: searchTerm,
+        });
+        
+        if (response.success) {
+          setTransactions(response.transactions || []);
+        } else {
+          throw new Error(response.error || 'Failed to load transactions');
+        }
+      } catch (error: any) {
+        console.error('Error loading transactions:', error);
+        setError(error.message || 'Failed to load transactions');
+        
+        // Fallback to mock data for development
+        setTransactions([
+          {
+            id: "txn_001",
+            date: "2024-01-15T10:30:00Z",
+            description: "Document Processing - Contract Analysis",
+            amount: 2950.0,
+            status: "completed",
+            type: "document_processing",
+            paymentMethod: "credit_card",
+            invoiceId: "INV-2024-001",
+            documents: ["Contract_Agreement.pdf", "Terms_Conditions.pdf"],
+          },
+          // ... other mock transactions
+        ]);
+      } finally {
+        setIsLoading(false);
+      }
+    };
+    
+    loadTransactions();
+  }, [statusFilter, typeFilter, dateFilter, searchTerm]);
 
   const filteredTransactions = transactions.filter((txn) => {
     const matchesSearch =
@@ -308,14 +301,52 @@ export default function Transactions() {
   const { total, completed, pending } = calculateTotals();
 
   const handleDownloadInvoice = (transaction: Transaction) => {
-    console.log("Downloading invoice:", transaction.invoiceId);
-    // Simulate download
+    // Download invoice from external server
+    const link = document.createElement('a');
+    link.href = `${import.meta.env.VITE_API_BASE_URL}/api/invoices/download/${transaction.invoiceId}`;
+    link.download = `invoice_${transaction.invoiceId}.pdf`;
+    link.target = '_blank';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
   };
 
   const handleViewDetails = (transaction: Transaction) => {
     setSelectedTransaction(transaction);
     setIsDetailsOpen(true);
   };
+  
+  // Show loading state
+  if (isLoading) {
+    return (
+      <Layout title="Transaction History">
+        <div className="flex items-center justify-center py-12">
+          <div className="text-center">
+            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto mb-4"></div>
+            <p className="text-gray-600">Loading your transactions...</p>
+          </div>
+        </div>
+      </Layout>
+    );
+  }
+  
+  // Show error state
+  if (error) {
+    return (
+      <Layout title="Transaction History">
+        <div className="text-center py-12">
+          <AlertCircle className="mx-auto h-12 w-12 text-red-500 mb-4" />
+          <h3 className="text-lg font-medium text-gray-900 mb-2">
+            Failed to Load Transactions
+          </h3>
+          <p className="text-gray-500 mb-4">{error}</p>
+          <Button onClick={() => window.location.reload()}>
+            Try Again
+          </Button>
+        </div>
+      </Layout>
+    );
+  }
 
   return (
     <Layout title="Transaction History">

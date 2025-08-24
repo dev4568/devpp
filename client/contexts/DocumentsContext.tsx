@@ -256,7 +256,7 @@ export function DocumentsProvider({ children }: DocumentsProviderProps) {
       console.error("Error storing files:", error);
       dispatch({
         type: "SET_ERROR",
-        payload: "Error storing files. Please try again.",
+        payload: "Error storing files locally. Please try again.",
       });
     } finally {
       dispatch({ type: "SET_LOADING", payload: false });
@@ -274,7 +274,7 @@ export function DocumentsProvider({ children }: DocumentsProviderProps) {
       console.error("Error removing file:", error);
       dispatch({
         type: "SET_ERROR",
-        payload: "Error removing file. Please try again.",
+        payload: "Error removing file from local storage. Please try again.",
       });
     }
   };
@@ -308,7 +308,7 @@ export function DocumentsProvider({ children }: DocumentsProviderProps) {
       console.error("Error updating file document type:", error);
       dispatch({
         type: "SET_ERROR",
-        payload: "Error updating document type. Please try again.",
+        payload: "Error updating document type in local storage. Please try again.",
       });
     }
   };
@@ -339,7 +339,7 @@ export function DocumentsProvider({ children }: DocumentsProviderProps) {
       console.error("Error updating file tier:", error);
       dispatch({
         type: "SET_ERROR",
-        payload: "Error updating tier. Please try again.",
+        payload: "Error updating tier in local storage. Please try again.",
       });
     }
   };
@@ -352,7 +352,7 @@ export function DocumentsProvider({ children }: DocumentsProviderProps) {
       console.error("Error clearing files:", error);
       dispatch({
         type: "SET_ERROR",
-        payload: "Error clearing files. Please try again.",
+        payload: "Error clearing local files. Please try again.",
       });
     }
   };
@@ -383,7 +383,7 @@ export function DocumentsProvider({ children }: DocumentsProviderProps) {
       console.error("Error restoring files:", error);
       dispatch({
         type: "SET_ERROR",
-        payload: "Error restoring files from storage.",
+        payload: "Error restoring files from local storage.",
       });
     } finally {
       dispatch({ type: "SET_LOADING", payload: false });

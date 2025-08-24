@@ -13,7 +13,7 @@ export type SignupForm = {
   agreeToTerms: boolean;
 };
 
-const API_URL = "http://localhost:5000"; // Replace with your actual API URL
+const API_URL = import.meta.env.VITE_API_BASE_URL || "https://your-server.com"; // Use environment variable for API URL
 
 // Helper function to handle API calls with axios
 const axiosInstance = axios.create({
@@ -21,7 +21,35 @@ const axiosInstance = axios.create({
   headers: {
     "Content-Type": "application/json",
   },
+  timeout: 30000, // 30 second timeout
 });
+
+// Add request interceptor for auth token if needed
+axiosInstance.interceptors.request.use(
+  (config) => {
+    const token = localStorage.getItem('userToken');
+    if (token) {
+      config.headers.Authorization = `Bearer ${token}`;
+    }
+    return config;
+  },
+  (error) => {
+    return Promise.reject(error);
+  }
+);
+
+// Add response interceptor for error handling
+axiosInstance.interceptors.response.use(
+  (response) => response,
+  (error) => {
+    if (error.response?.status === 401) {
+      // Handle unauthorized access
+      localStorage.removeItem('userToken');
+      window.location.href = '/login';
+    }
+    return Promise.reject(error);
+  }
+);
 
 /**
  * Send OTP to email
@@ -91,7 +119,7 @@ export async function createAccount(formData: SignupForm) {
 
 export const loginUser = async (email, password) => {
   try {
-    const response = await axios.post(`${API_URL}/login`, { email, password });
+    const response = await axiosInstance.post('/api/auth/login', { email, password });
     return response.data;
   } catch (error) {
     throw new Error(error.response?.data?.message || "Failed to log in");
@@ -101,7 +129,7 @@ export const loginUser = async (email, password) => {
 // API Call for Forgot Password (send reset email)
 export const forgotPassword = async (email) => {
   try {
-    const response = await axios.post(`${API_URL}/forgot-password`, { email });
+    const response = await axiosInstance.post('/api/auth/forgot-password', { email });
     return response.data;
   } catch (error) {
     throw new Error(
@@ -110,12 +138,14 @@ export const forgotPassword = async (email) => {
   }
 };
 
-// Updated file upload function that handles IndexedDB files and additional data
+// Enhanced file upload function for external server
 export const uploadFilesToServer = async (
   files: Array<{
     id: string;
     name: string;
     file: File | Blob;
+    documentTypeId?: string;
+    tier?: string;
     [key: string]: any;
   }>,
   userId: string,
@@ -138,6 +168,15 @@ export const uploadFilesToServer = async (
             });
 
       formData.append("files", file);
+      
+      // Add file metadata
+      if (fileItem.documentTypeId) {
+        formData.append(`fileMetadata[${index}][documentTypeId]`, fileItem.documentTypeId);
+      }
+      if (fileItem.tier) {
+        formData.append(`fileMetadata[${index}][tier]`, fileItem.tier);
+      }
+      formData.append(`fileMetadata[${index}][originalId]`, fileItem.id);
     });
 
     // Add additional data
@@ -147,14 +186,18 @@ export const uploadFilesToServer = async (
     if (pricingSnapshot)
       formData.append("pricingSnapshot", JSON.stringify(pricingSnapshot));
     if (metadata) formData.append("metadata", JSON.stringify(metadata));
+    
+    // Add timestamp
+    formData.append("uploadTimestamp", new Date().toISOString());
 
-    const response = await axios.post(
-      `${API_URL}/api/uploads/files`,
+    const response = await axiosInstance.post(
+      '/api/uploads/files',
       formData,
       {
         headers: {
           "Content-Type": "multipart/form-data",
         },
+        timeout: 300000, // 5 minute timeout for file uploads
         onUploadProgress: (progressEvent) => {
           if (onProgress && progressEvent.total) {
             const percentCompleted = Math.round(
@@ -168,13 +211,14 @@ export const uploadFilesToServer = async (
 
     return response.data;
   } catch (error: any) {
+    console.error('File upload error:', error);
     throw new Error(
       error.response?.data?.error || error.message || "File upload failed",
     );
   }
 };
 
-// Function to get files from IndexedDB and convert them to uploadable format
+// Enhanced function to get files from IndexedDB with better error handling
 export const getFilesFromIndexedDB = async (): Promise<
   Array<{
     id: string;
@@ -190,9 +234,17 @@ export const getFilesFromIndexedDB = async (): Promise<
   const STORE_NAME = "uploaded_files";
 
   return new Promise((resolve, reject) => {
-    const request = indexedDB.open(DB_NAME);
+    const request = indexedDB.open(DB_NAME, 1);
 
     request.onerror = () => reject(request.error);
+    
+    request.onupgradeneeded = (event) => {
+      const db = (event.target as IDBOpenDBRequest).result;
+      if (!db.objectStoreNames.contains(STORE_NAME)) {
+        const objectStore = db.createObjectStore(STORE_NAME, { keyPath: 'id' });
+        objectStore.createIndex('timestamp', 'timestamp', { unique: false });
+      }
+    };
 
     request.onsuccess = () => {
       const db = request.result;
@@ -226,13 +278,13 @@ export const getFilesFromIndexedDB = async (): Promise<
   });
 };
 
-// Function to clear IndexedDB after successful upload
+// Enhanced function to clear IndexedDB with better error handling
 export const clearIndexedDBFiles = async (): Promise<void> => {
   const DB_NAME = "udin_files_db";
   const STORE_NAME = "uploaded_files";
 
   return new Promise((resolve, reject) => {
-    const request = indexedDB.open(DB_NAME);
+    const request = indexedDB.open(DB_NAME, 1);
 
     request.onerror = () => reject(request.error);
 
@@ -257,9 +309,7 @@ export const clearIndexedDBFiles = async (): Promise<void> => {
 // Get upload status
 export const getUploadStatus = async (uploadId: string) => {
   try {
-    const response = await axios.get(
-      `${API_URL}/api/uploads/status/${uploadId}`,
-    );
+    const response = await axiosInstance.get(`/api/uploads/status/${uploadId}`);
     return response.data;
   } catch (error: any) {
     throw new Error(
@@ -271,11 +321,146 @@ export const getUploadStatus = async (uploadId: string) => {
 // Get user uploads
 export const getUserUploads = async (userId: string) => {
   try {
-    const response = await axios.get(`${API_URL}/api/uploads/user/${userId}`);
+    const response = await axiosInstance.get(`/api/uploads/user/${userId}`);
     return response.data;
   } catch (error: any) {
     throw new Error(
       error.response?.data?.error || "Failed to get user uploads",
+    );
+  }
+};
+
+// Create payment order
+export const createPaymentOrder = async (orderData: {
+  amount: number;
+  currency: string;
+  receipt: string;
+  notes?: any;
+}) => {
+  try {
+    const response = await axiosInstance.post('/api/payments/create-order', orderData);
+    return response.data;
+  } catch (error: any) {
+    throw new Error(
+      error.response?.data?.error || "Failed to create payment order",
+    );
+  }
+};
+
+// Verify payment
+export const verifyPayment = async (paymentData: {
+  orderId: string;
+  paymentId: string;
+  signature: string;
+}) => {
+  try {
+    const response = await axiosInstance.post('/api/payments/verify', paymentData);
+    return response.data;
+  } catch (error: any) {
+    throw new Error(
+      error.response?.data?.error || "Failed to verify payment",
+    );
+  }
+};
+
+// Get user profile
+export const getUserProfile = async (userId: string) => {
+  try {
+    const response = await axiosInstance.get(`/api/users/profile/${userId}`);
+    return response.data;
+  } catch (error: any) {
+    throw new Error(
+      error.response?.data?.error || "Failed to get user profile",
+    );
+  }
+};
+
+// Update user profile
+export const updateUserProfile = async (userId: string, profileData: any) => {
+  try {
+    const response = await axiosInstance.put(`/api/users/profile/${userId}`, profileData);
+    return response.data;
+  } catch (error: any) {
+    throw new Error(
+      error.response?.data?.error || "Failed to update user profile",
+    );
+  }
+};
+
+// Get user transactions
+export const getUserTransactions = async (userId: string, filters?: any) => {
+  try {
+    const params = new URLSearchParams();
+    if (filters) {
+      Object.keys(filters).forEach(key => {
+        if (filters[key] && filters[key] !== 'all') {
+          params.append(key, filters[key]);
+        }
+      });
+    }
+    
+    const response = await axiosInstance.get(`/api/users/transactions/${userId}?${params}`);
+    return response.data;
+  } catch (error: any) {
+    throw new Error(
+      error.response?.data?.error || "Failed to get user transactions",
+    );
+  }
+};
+
+// Get user documents
+export const getUserDocuments = async (userId: string, filters?: any) => {
+  try {
+    const params = new URLSearchParams();
+    if (filters) {
+      Object.keys(filters).forEach(key => {
+        if (filters[key] && filters[key] !== 'all') {
+          params.append(key, filters[key]);
+        }
+      });
+    }
+    
+    const response = await axiosInstance.get(`/api/users/documents/${userId}?${params}`);
+    return response.data;
+  } catch (error: any) {
+    throw new Error(
+      error.response?.data?.error || "Failed to get user documents",
+    );
+  }
+};
+
+// Download document
+export const downloadDocument = async (documentId: string, type: 'original' | 'signed' = 'original') => {
+  try {
+    const response = await axiosInstance.get(`/api/documents/download/${documentId}?type=${type}`, {
+      responseType: 'blob',
+    });
+    
+    // Create download link
+    const url = window.URL.createObjectURL(new Blob([response.data]));
+    const link = document.createElement('a');
+    link.href = url;
+    
+    // Get filename from response headers or use default
+    const contentDisposition = response.headers['content-disposition'];
+    let filename = `document_${documentId}.pdf`;
+    if (contentDisposition) {
+      const filenameMatch = contentDisposition.match(/filename="(.+)"/);
+      if (filenameMatch) {
+        filename = filenameMatch[1];
+      }
+    }
+    
+    link.setAttribute('download', filename);
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    window.URL.revokeObjectURL(url);
+    
+    return { success: true, filename };
+  } catch (error: any) {
+    throw new Error(
+      error.response?.data?.error || "Failed to download document",
     );
   }
 };

@@ -41,6 +41,9 @@ import {
   Save,
   X,
 } from "lucide-react";
+import { getUserProfile, updateUserProfile } from "@/api/api";
+import { useEffect } from "react";
+import { useNavigate } from "react-router-dom";
 
 interface UserProfile {
   id: string;
@@ -62,33 +65,86 @@ interface UserProfile {
 }
 
 export default function Profile() {
+  const navigate = useNavigate();
   const [isEditing, setIsEditing] = useState(false);
   const [isPasswordDialogOpen, setIsPasswordDialogOpen] = useState(false);
-  const [profile, setProfile] = useState<UserProfile>({
-    id: "user-001",
-    firstName: "John",
-    lastName: "Doe",
-    email: "john.doe@example.com",
-    phone: "+1 (555) 123-4567",
-    address: "123 Main Street",
-    city: "New York",
-    state: "NY",
-    zipCode: "10001",
-    country: "United States",
-    dateOfBirth: "1990-05-15",
-    bio: "Senior Software Developer with 8+ years of experience in full-stack development. Passionate about creating efficient and scalable solutions.",
-    avatar: "",
-    joinDate: "2023-01-15",
-    accountType: "premium",
-    verificationStatus: "verified",
-  });
+  const [profile, setProfile] = useState<UserProfile | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [isSaving, setIsSaving] = useState(false);
 
-  const [editedProfile, setEditedProfile] = useState<UserProfile>(profile);
+  const [editedProfile, setEditedProfile] = useState<UserProfile | null>(null);
   const [passwordData, setPasswordData] = useState({
     currentPassword: "",
     newPassword: "",
     confirmPassword: "",
   });
+  
+  // Load user profile from external server
+  useEffect(() => {
+    const loadProfile = async () => {
+      try {
+        setIsLoading(true);
+        setError(null);
+        
+        // Get user ID from localStorage or token
+        const userData = localStorage.getItem('udin_user_data');
+        const userToken = localStorage.getItem('userToken');
+        
+        let userId = null;
+        if (userData) {
+          const parsedData = JSON.parse(userData);
+          userId = parsedData.userId;
+        }
+        
+        if (!userId && !userToken) {
+          // Redirect to login if no user data
+          navigate('/login');
+          return;
+        }
+        
+        // Fetch profile from external server
+        const response = await getUserProfile(userId || 'current');
+        
+        if (response.success) {
+          const profileData = response.profile;
+          setProfile(profileData);
+          setEditedProfile(profileData);
+        } else {
+          throw new Error(response.error || 'Failed to load profile');
+        }
+      } catch (error: any) {
+        console.error('Error loading profile:', error);
+        setError(error.message || 'Failed to load profile');
+        
+        // Fallback to mock data for development
+        const mockProfile = {
+          id: "user-001",
+          firstName: "John",
+          lastName: "Doe",
+          email: "john.doe@example.com",
+          phone: "+1 (555) 123-4567",
+          address: "123 Main Street",
+          city: "New York",
+          state: "NY",
+          zipCode: "10001",
+          country: "United States",
+          dateOfBirth: "1990-05-15",
+          bio: "Senior Software Developer with 8+ years of experience in full-stack development.",
+          avatar: "",
+          joinDate: "2023-01-15",
+          accountType: "premium",
+          verificationStatus: "verified",
+        };
+        setProfile(mockProfile);
+        setEditedProfile(mockProfile);
+      } finally {
+        setIsLoading(false);
+      }
+    };
+    
+    loadProfile();
+  }, [navigate]);
 
   const handleEditToggle = () => {
     if (isEditing) {
@@ -97,16 +153,34 @@ export default function Profile() {
     setIsEditing(!isEditing);
   };
 
-  const handleSave = () => {
-    setProfile(editedProfile);
-    setIsEditing(false);
-    // Here you would typically make an API call to save the profile
-    console.log("Profile saved:", editedProfile);
+  const handleSave = async () => {
+    if (!editedProfile || !profile) return;
+    
+    try {
+      setIsSaving(true);
+      
+      // Update profile on external server
+      const response = await updateUserProfile(profile.id, editedProfile);
+      
+      if (response.success) {
+        setProfile(editedProfile);
+        setIsEditing(false);
+        alert('Profile updated successfully!');
+      } else {
+        throw new Error(response.error || 'Failed to update profile');
+      }
+    } catch (error: any) {
+      console.error('Error updating profile:', error);
+      alert(error.message || 'Failed to update profile. Please try again.');
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   const handleInputChange = (field: keyof UserProfile, value: string) => {
+    if (!editedProfile) return;
     setEditedProfile((prev) => ({
-      ...prev,
+      ...prev!,
       [field]: value,
     }));
   };
@@ -126,6 +200,38 @@ export default function Profile() {
     setIsPasswordDialogOpen(false);
     alert("Password changed successfully!");
   };
+  
+  // Show loading state
+  if (isLoading) {
+    return (
+      <Layout title="Profile Settings">
+        <div className="flex items-center justify-center py-12">
+          <div className="text-center">
+            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto mb-4"></div>
+            <p className="text-gray-600">Loading your profile...</p>
+          </div>
+        </div>
+      </Layout>
+    );
+  }
+  
+  // Show error state
+  if (error || !profile) {
+    return (
+      <Layout title="Profile Settings">
+        <div className="text-center py-12">
+          <AlertCircle className="mx-auto h-12 w-12 text-red-500 mb-4" />
+          <h3 className="text-lg font-medium text-gray-900 mb-2">
+            Failed to Load Profile
+          </h3>
+          <p className="text-gray-500 mb-4">{error || 'Profile not found'}</p>
+          <Button onClick={() => window.location.reload()}>
+            Try Again
+          </Button>
+        </div>
+      </Layout>
+    );
+  }
 
   const getAccountTypeBadge = (type: string) => {
     switch (type) {
@@ -167,9 +273,21 @@ export default function Profile() {
                   <X className="h-4 w-4 mr-2" />
                   Cancel
                 </Button>
-                <Button onClick={handleSave}>
-                  <Save className="h-4 w-4 mr-2" />
-                  Save Changes
+                <Button
+                  onClick={handleSave}
+                  disabled={isSaving}
+                >
+                  {isSaving ? (
+                    <>
+                      <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
+                      Saving...
+                    </>
+                  ) : (
+                    <>
+                      <Save className="h-4 w-4 mr-2" />
+                      Save Changes
+                    </>
+                  )}
                 </Button>
               </>
             ) : (
@@ -228,9 +346,7 @@ export default function Profile() {
                 <Label htmlFor="firstName">First Name</Label>
                 <Input
                   id="firstName"
-                  value={
-                    isEditing ? editedProfile.firstName : profile.firstName
-                  }
+                  value={isEditing ? editedProfile?.firstName || '' : profile.firstName}
                   onChange={(e) =>
                     handleInputChange("firstName", e.target.value)
                   }
@@ -242,7 +358,7 @@ export default function Profile() {
                 <Label htmlFor="lastName">Last Name</Label>
                 <Input
                   id="lastName"
-                  value={isEditing ? editedProfile.lastName : profile.lastName}
+                  value={isEditing ? editedProfile?.lastName || '' : profile.lastName}
                   onChange={(e) =>
                     handleInputChange("lastName", e.target.value)
                   }
@@ -255,7 +371,7 @@ export default function Profile() {
                 <Input
                   id="email"
                   type="email"
-                  value={isEditing ? editedProfile.email : profile.email}
+                  value={isEditing ? editedProfile?.email || '' : profile.email}
                   onChange={(e) => handleInputChange("email", e.target.value)}
                   disabled={!isEditing}
                 />
@@ -265,7 +381,7 @@ export default function Profile() {
                 <Label htmlFor="phone">Phone Number</Label>
                 <Input
                   id="phone"
-                  value={isEditing ? editedProfile.phone : profile.phone}
+                  value={isEditing ? editedProfile?.phone || '' : profile.phone}
                   onChange={(e) => handleInputChange("phone", e.target.value)}
                   disabled={!isEditing}
                 />
@@ -276,9 +392,7 @@ export default function Profile() {
                 <Input
                   id="dateOfBirth"
                   type="date"
-                  value={
-                    isEditing ? editedProfile.dateOfBirth : profile.dateOfBirth
-                  }
+                  value={isEditing ? editedProfile?.dateOfBirth || '' : profile.dateOfBirth}
                   onChange={(e) =>
                     handleInputChange("dateOfBirth", e.target.value)
                   }
@@ -289,7 +403,7 @@ export default function Profile() {
               <div className="space-y-2">
                 <Label htmlFor="country">Country</Label>
                 <Select
-                  value={isEditing ? editedProfile.country : profile.country}
+                  value={isEditing ? editedProfile?.country || '' : profile.country}
                   onValueChange={(value) => handleInputChange("country", value)}
                   disabled={!isEditing}
                 >
@@ -318,7 +432,7 @@ export default function Profile() {
                   <Label htmlFor="address">Street Address</Label>
                   <Input
                     id="address"
-                    value={isEditing ? editedProfile.address : profile.address}
+                    value={isEditing ? editedProfile?.address || '' : profile.address}
                     onChange={(e) =>
                       handleInputChange("address", e.target.value)
                     }
@@ -330,7 +444,7 @@ export default function Profile() {
                     <Label htmlFor="city">City</Label>
                     <Input
                       id="city"
-                      value={isEditing ? editedProfile.city : profile.city}
+                      value={isEditing ? editedProfile?.city || '' : profile.city}
                       onChange={(e) =>
                         handleInputChange("city", e.target.value)
                       }
@@ -341,7 +455,7 @@ export default function Profile() {
                     <Label htmlFor="state">State/Province</Label>
                     <Input
                       id="state"
-                      value={isEditing ? editedProfile.state : profile.state}
+                      value={isEditing ? editedProfile?.state || '' : profile.state}
                       onChange={(e) =>
                         handleInputChange("state", e.target.value)
                       }
@@ -352,9 +466,7 @@ export default function Profile() {
                     <Label htmlFor="zipCode">ZIP/Postal Code</Label>
                     <Input
                       id="zipCode"
-                      value={
-                        isEditing ? editedProfile.zipCode : profile.zipCode
-                      }
+                      value={isEditing ? editedProfile?.zipCode || '' : profile.zipCode}
                       onChange={(e) =>
                         handleInputChange("zipCode", e.target.value)
                       }
@@ -370,7 +482,7 @@ export default function Profile() {
               <Label htmlFor="bio">Bio</Label>
               <Textarea
                 id="bio"
-                value={isEditing ? editedProfile.bio : profile.bio}
+                value={isEditing ? editedProfile?.bio || '' : profile.bio}
                 onChange={(e) => handleInputChange("bio", e.target.value)}
                 disabled={!isEditing}
                 rows={4}
