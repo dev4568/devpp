@@ -552,19 +552,15 @@ const handlePayNow = async () => {
     });
  */
     // 6) Upload files
-    const transactionId = "uuidv4";
     setShowUploadDialog(true);
     setIsFetchingIndexed(true);
 
-    const [idbFilesFetched, idbMetaFetched] = await Promise.all([
-      fetchIndexedFiles(),
-      fetchIndexedMetadata(),
-    ]);
-
+    // Get files from IndexedDB using the new API function
+    const idbFilesFetched = await getFilesFromIndexedDB();
     setIndexedFiles(idbFilesFetched);
-    setIndexedMeta(idbMetaFetched);
     setIsFetchingIndexed(false);
 
+    // Get files from document context
     const contextFiles = (() => {
       try {
         return documentsActions.getValidFiles();
@@ -573,36 +569,40 @@ const handlePayNow = async () => {
       }
     })();
 
-    const allFiles = [...contextFiles, ...idbFilesFetched];
+    // Combine all files for upload
+    const allFiles = [
+      ...contextFiles.map((f: any) => ({
+        id: f.id,
+        name: f.name,
+        file: f.file || new File([], f.name),
+        size: f.size,
+        type: f.type,
+        documentTypeId: f.documentTypeId,
+        tier: f.tier
+      })),
+      ...idbFilesFetched
+    ];
 
-    await uploadFilesToAPI(
+    // Upload files to server with progress tracking
+    const uploadResult = await uploadFilesToServer(
       allFiles,
-      idbMetaFetched,
-      transactionId,
-      (pct) => setUploadProgress(pct),
+      customerInfo?.userId || customerInfo?.email || 'anonymous',
+      customerInfo,
       {
-        customerInfo,
-        pricingSnapshot: {
-          items,
-          subtotal,
-          gstAmount,
-          totalAmount,
-          taxRate,
-        },
-      }
+        items,
+        subtotal,
+        gstAmount,
+        totalAmount,
+        taxRate,
+      },
+      {}, // metadata
+      (progress) => setUploadProgress(progress)
     );
 
-    // 7) Mark uploaded
- /*    await jsonFetch(`${BASE_URL}/transactions/${transactionId}/status`, {
-      method: "PATCH",
-      body: JSON.stringify({
-        status: "uploaded",
-        uploadedFilesCount: allFiles.length,
-      }),
-    }); */
+    console.log('Upload completed:', uploadResult);
 
-    // 8) Wipe IDB
-    await wipeAllIDB();
+    // 7) Clear IndexedDB after successful upload
+    await clearIndexedDBFiles();
 
     // Success
     setShowUploadDialog(false);
