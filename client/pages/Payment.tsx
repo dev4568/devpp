@@ -62,96 +62,18 @@ const computeFilePriceINR = (file: any, fallbackUnitPrice = 0) => {
 };
 
 /* =============================================================================
-   IndexedDB helpers
+   IndexedDB helpers - simplified since we now use API functions
 ============================================================================= */
-const DB_NAME = "udin-db";
-const DB_VERSION = 1;
-const FILES_STORE = "files";       // keyPath: "id"
-const METADATA_STORE = "metadata"; // keyPath: "key"
 
 type IndexedFile = {
   id: string;
   name: string;
   size?: number;
   type?: string;
-  // If you persist raw bytes, add: data?: ArrayBuffer | Blob
+  documentTypeId?: string;
+  tier?: string;
+  file?: Blob;
 };
-
-type IndexedMeta = Record<string, any>;
-
-function openDB(): Promise<IDBDatabase> {
-  return new Promise((resolve, reject) => {
-    const req = indexedDB.open(DB_NAME, DB_VERSION);
-    req.onerror = () => reject(req.error);
-    req.onsuccess = () => resolve(req.result);
-    req.onupgradeneeded = () => {
-      const db = req.result;
-      if (!db.objectStoreNames.contains(FILES_STORE)) {
-        db.createObjectStore(FILES_STORE, { keyPath: "id" });
-      }
-      if (!db.objectStoreNames.contains(METADATA_STORE)) {
-        db.createObjectStore(METADATA_STORE, { keyPath: "key" });
-      }
-    };
-  });
-}
-
-async function getAllFromStore<T = any>(storeName: string): Promise<T[]> {
-  const db = await openDB();
-  return new Promise((resolve, reject) => {
-    const tx = db.transaction(storeName, "readonly");
-    const store = tx.objectStore(storeName);
-    const req = store.getAll();
-    req.onerror = () => reject(req.error);
-    req.onsuccess = () => resolve(req.result as T[]);
-  });
-}
-
-async function fetchIndexedFiles(): Promise<IndexedFile[]> {
-  try {
-    return await getAllFromStore<IndexedFile>(FILES_STORE);
-  } catch {
-    return [];
-  }
-}
-async function fetchIndexedMetadata(): Promise<IndexedMeta> {
-  try {
-    const rows = await getAllFromStore<{ key: string; value: any }>(METADATA_STORE);
-    return rows.reduce((acc, r) => {
-      acc[r.key] = r.value;
-      return acc;
-    }, {} as Record<string, any>);
-  } catch {
-    return {};
-  }
-}
-
-async function deleteFromStoreByKeys(storeName: string, keys: Array<IDBValidKey>) {
-  const db = await openDB();
-  await new Promise<void>((resolve, reject) => {
-    const tx = db.transaction(storeName, "readwrite");
-    const store = tx.objectStore(storeName);
-    keys.forEach((k) => store.delete(k));
-    tx.oncomplete = () => resolve();
-    tx.onerror = () => reject(tx.error);
-    tx.onabort = () => reject(tx.error);
-  });
-}
-async function clearStore(storeName: string) {
-  const db = await openDB();
-  await new Promise<void>((resolve, reject) => {
-    const tx = db.transaction(storeName, "readwrite");
-    const store = tx.objectStore(storeName);
-    const req = store.clear();
-    req.onsuccess = () => resolve();
-    req.onerror = () => reject(req.error);
-  });
-}
-
-/** Completely wipes IndexedDB stores (files + metadata). */
-async function wipeAllIDB() {
-  await Promise.all([clearStore(FILES_STORE), clearStore(METADATA_STORE)]);
-}
 
 /* =============================================================================
    Razorpay loader + API helpers
