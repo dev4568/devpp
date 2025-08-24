@@ -13,36 +13,51 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
-import { UserPlus, ArrowLeft, Mail, Shield, Clock, RefreshCw } from "lucide-react";
+import {
+  UserPlus,
+  ArrowLeft,
+  Mail,
+  Shield,
+  Clock,
+  RefreshCw,
+  Loader2, // <-- NEW
+} from "lucide-react";
 
 // API calls
-import {
-  sendEmailOtp,
-  createAccount,
-  verifyEmailOtp,
-} from "@/api/api";
+import { sendEmailOtp, createAccount, verifyEmailOtp } from "@/api/api";
 
-const EmailVerificationModal = ({ verificationId, email, onClose, onVerify }) => {
-  const [otp, setOtp] = useState(Array(6).fill("")); 
-  const [timer, setTimer] = useState(120); 
-  const [canResend, setCanResend] = useState(false); 
-  const [isVerifying, setIsVerifying] = useState(false);
-  const [isResending, setIsResending] = useState(false);
+interface EmailVerificationModalProps {
+  verificationId: string | null;
+  email: string;
+  onClose: () => void;
+  onVerify: () => void;
+}
+
+const EmailVerificationModal = ({
+  verificationId,
+  email,
+  onClose,
+  onVerify,
+}: EmailVerificationModalProps) => {
+  const [otp, setOtp] = useState<string[]>(Array(6).fill(""));
+  const [timer, setTimer] = useState<number>(120);
+  const [canResend, setCanResend] = useState<boolean>(false);
+  const [isVerifying, setIsVerifying] = useState<boolean>(false);
+  const [isResending, setIsResending] = useState<boolean>(false);
 
   useEffect(() => {
     if (timer === 0) {
       setCanResend(true);
-    } else {
-      const interval = setInterval(() => {
-        setTimer((prevTime) => prevTime - 1); 
-      }, 1000);
-
-      return () => clearInterval(interval); 
+      return;
     }
+    const interval = setInterval(() => {
+      setTimer((prevTime) => Math.max(0, prevTime - 1));
+    }, 1000);
+    return () => clearInterval(interval);
   }, [timer]);
 
   const handleVerifyOtp = async () => {
-    const otpString = otp.join(""); 
+    const otpString = otp.join("");
     if (otpString.length !== 6) {
       Swal.fire("Error", "Please enter a valid 6-digit OTP", "error");
       return;
@@ -50,12 +65,12 @@ const EmailVerificationModal = ({ verificationId, email, onClose, onVerify }) =>
 
     setIsVerifying(true);
     try {
-      await verifyEmailOtp(verificationId, otpString);
-      onVerify(); 
+      await verifyEmailOtp(verificationId as string, otpString);
+      onVerify();
       Swal.fire("Success", "Email verified successfully!", "success");
-      onClose(); 
-    } catch (error) {
-      Swal.fire("Error", error.message || "Invalid OTP", "error");
+      onClose();
+    } catch (error: any) {
+      Swal.fire("Error", error?.message || "Invalid OTP", "error");
     } finally {
       setIsVerifying(false);
     }
@@ -64,9 +79,9 @@ const EmailVerificationModal = ({ verificationId, email, onClose, onVerify }) =>
   const handleResendOtp = async () => {
     setIsResending(true);
     try {
-      await sendEmailOtp(email); 
-      setTimer(120); 
-      setCanResend(false); 
+      await sendEmailOtp(email);
+      setTimer(120);
+      setCanResend(false);
       Swal.fire("Success", "OTP has been resent to your email.", "success");
     } catch (error) {
       Swal.fire("Error", "Failed to resend OTP. Please try again.", "error");
@@ -75,46 +90,51 @@ const EmailVerificationModal = ({ verificationId, email, onClose, onVerify }) =>
     }
   };
 
-  const handleInputChange = (e, index) => {
-    const value = e.target.value.replace(/[^0-9]/g, ''); 
+  const handleInputChange = (
+    e: React.ChangeEvent<HTMLInputElement>,
+    index: number,
+  ) => {
+    const value = e.target.value.replace(/[^0-9]/g, "");
     if (value.length <= 1) {
       const newOtp = [...otp];
       newOtp[index] = value;
       setOtp(newOtp);
-      
+
       if (value !== "" && index < 5) {
-        const nextInput = document.getElementById(`otp-${index + 1}`);
+        const nextInput = document.getElementById(
+          `otp-${index + 1}`,
+        ) as HTMLInputElement | null;
         if (nextInput) nextInput.focus();
       }
     }
   };
 
-  const handleKeyDown = (e, index) => {
-    if (e.key === 'Backspace' && otp[index] === '' && index > 0) {
-      const prevInput = document.getElementById(`otp-${index - 1}`);
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>, index: number) => {
+    if (e.key === "Backspace" && otp[index] === "" && index > 0) {
+      const prevInput = document.getElementById(
+        `otp-${index - 1}`,
+      ) as HTMLInputElement | null;
       if (prevInput) prevInput.focus();
     }
   };
 
-  const formatTime = (seconds) => {
+  const formatTime = (seconds: number) => {
     const minutes = Math.floor(seconds / 60);
     const remainingSeconds = seconds % 60;
-    return `${minutes}:${remainingSeconds < 10 ? '0' : ''}${remainingSeconds}`;
+    return `${minutes}:${remainingSeconds < 10 ? "0" : ""}${remainingSeconds}`;
   };
 
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md transform transition-all duration-300 scale-100">
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md transform transition-all duration-300 scale-100 relative">
         <div className="text-center pt-8 pb-6 px-8">
           <div className="inline-flex items-center justify-center w-16 h-16 bg-blue-100 rounded-full mb-4">
             <Mail className="w-8 h-8 text-blue-600" />
           </div>
-          <h2 className="text-2xl font-bold text-gray-900 mb-2">
-            Verify Your Email
-          </h2>
+          <h2 className="text-2xl font-bold text-gray-900 mb-2">Verify Your Email</h2>
           <p className="text-gray-600 text-sm leading-relaxed">
-            We've sent a 6-digit verification code to your email address. 
-            Please enter it below to continue.
+            We've sent a 6-digit verification code to your email address. Please
+            enter it below to continue.
           </p>
         </div>
 
@@ -126,7 +146,7 @@ const EmailVerificationModal = ({ verificationId, email, onClose, onVerify }) =>
                 id={`otp-${index}`}
                 type="text"
                 inputMode="numeric"
-                maxLength="1"
+                maxLength={1}
                 value={digit}
                 onChange={(e) => handleInputChange(e, index)}
                 onKeyDown={(e) => handleKeyDown(e, index)}
@@ -134,27 +154,24 @@ const EmailVerificationModal = ({ verificationId, email, onClose, onVerify }) =>
                   w-12 h-12 text-center text-xl font-semibold
                   border-2 rounded-xl transition-all duration-200
                   focus:outline-none focus:ring-2 focus:ring-blue-500
-                  ${digit ? 'border-blue-500 bg-blue-50' : 'border-gray-300'}
+                  ${digit ? "border-blue-500 bg-blue-50" : "border-gray-300"}
                   hover:border-blue-400
                 `}
-                style={{
-                  caretColor: 'transparent' 
-                }}
+                style={{ caretColor: "transparent" }}
               />
             ))}
           </div>
 
           <button
             onClick={handleVerifyOtp}
-            disabled={isVerifying || otp.some(digit => digit === '')}
+            disabled={isVerifying || otp.some((d) => d === "")}
             className={`
               w-full py-3 px-6 rounded-xl font-semibold text-white
               transition-all duration-200 transform
-              ${isVerifying || otp.some(digit => digit === '')
-                ? 'bg-gray-400 cursor-not-allowed'
-                : 'bg-blue-600 hover:bg-blue-700 hover:scale-105 active:scale-95'
-              }
-              ${isVerifying ? 'animate-pulse' : ''}
+              ${isVerifying || otp.some((d) => d === "")
+                ? "bg-gray-400 cursor-not-allowed"
+                : "bg-blue-600 hover:bg-blue-700 hover:scale-105 active:scale-95"}
+              ${isVerifying ? "animate-pulse" : ""}
             `}
           >
             {isVerifying ? (
@@ -163,7 +180,7 @@ const EmailVerificationModal = ({ verificationId, email, onClose, onVerify }) =>
                 Verifying...
               </div>
             ) : (
-              'Verify Email'
+              "Verify Email"
             )}
           </button>
         </div>
@@ -174,16 +191,23 @@ const EmailVerificationModal = ({ verificationId, email, onClose, onVerify }) =>
               <Clock className="w-4 h-4 text-gray-500" />
               <span className="text-sm text-gray-600">
                 {timer > 0 ? (
-                  <>Time remaining: <span className="font-mono font-semibold text-blue-600">{formatTime(timer)}</span></>
+                  <>
+                    Time remaining:{" "}
+                    <span className="font-mono font-semibold text-blue-600">
+                      {formatTime(timer)}
+                    </span>
+                  </>
                 ) : (
-                  <span className="text-green-600 font-medium">You can now resend the code</span>
+                  <span className="text-green-600 font-medium">
+                    You can now resend the code
+                  </span>
                 )}
               </span>
             </div>
-            
+
             {timer > 0 && (
               <div className="w-full bg-gray-200 rounded-full h-1 mb-3">
-                <div 
+                <div
                   className="bg-blue-600 h-1 rounded-full transition-all duration-1000 ease-linear"
                   style={{ width: `${((120 - timer) / 120) * 100}%` }}
                 ></div>
@@ -198,10 +222,9 @@ const EmailVerificationModal = ({ verificationId, email, onClose, onVerify }) =>
               w-full py-2.5 px-6 rounded-xl font-medium
               transition-all duration-200 transform
               ${canResend && !isResending
-                ? 'bg-green-600 text-white hover:bg-green-700 hover:scale-105 active:scale-95'
-                : 'bg-gray-200 text-gray-500 cursor-not-allowed'
-              }
-              ${isResending ? 'animate-pulse' : ''}
+                ? "bg-green-600 text-white hover:bg-green-700 hover:scale-105 active:scale-95"
+                : "bg-gray-200 text-gray-500 cursor-not-allowed"}
+              ${isResending ? "animate-pulse" : ""}
             `}
           >
             {isResending ? (
@@ -258,10 +281,14 @@ export default function Signup() {
     agreeToTerms: false,
   });
 
+  // keeping this state if you plan to use it later
   const [emailOtp, setEmailOtp] = useState("");
   const [emailVerified, setEmailVerified] = useState(false);
-  const [verificationId, setVerificationId] = useState(null);
+  const [verificationId, setVerificationId] = useState<string | null>(null);
   const [showModal, setShowModal] = useState(false); // Controls the visibility of the modal
+
+  // NEW: loader state for "Verify" button while sending email
+  const [isSendingOtp, setIsSendingOtp] = useState(false);
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const { name, value } = e.target;
@@ -283,19 +310,33 @@ export default function Signup() {
 
     try {
       const accountData = await createAccount({
-        name: formData.firstName + " " + formData.lastName, 
+        name: formData.firstName + " " + formData.lastName,
         email: formData.email,
-        mobile: formData.phone, 
+        mobile: formData.phone,
       });
-      const { userId, tempPassword } = accountData;
 
-      // Store user data
-      localStorage.setItem("udin_user_data", JSON.stringify({ ...formData, userId, tempPassword }));
+      const { userId, tempPassword, token } = accountData.data;
+
+      // Store user data (your existing key)
+      console.log(accountData);
+      localStorage.setItem("udin_user_data", JSON.stringify({ accountData }));
+
+      localStorage.setItem(
+        "udin_auth",
+        JSON.stringify({
+          userId,
+          token: token ?? null,
+        }),
+      );
+
+      // Optional quick-access keys
+      localStorage.setItem("udin_user_id", userId);
+      if (token) localStorage.setItem("udin_token", token);
 
       Swal.fire(
         "Account Created!",
         `User ID: ${userId}, Temporary Password: ${tempPassword}`,
-        "success"
+        "success",
       );
 
       // Redirect to payment screen
@@ -306,18 +347,26 @@ export default function Signup() {
   };
 
   const handleEmailOtp = async () => {
+    if (!formData.email) {
+      Swal.fire("Error", "Please enter your email first", "error");
+      return;
+    }
     try {
+      setIsSendingOtp(true); // START loader
       const response = await sendEmailOtp(formData.email);
-      setVerificationId(response.data.verificationId);
-      setShowModal(true); 
+      const vId = response?.data?.verificationId ?? response?.verificationId;
+      setVerificationId(vId);
+      setShowModal(true);
       Swal.fire("OTP Sent", "OTP sent to your email address", "success");
     } catch (error) {
       Swal.fire("Error", "Failed to send email OTP. Please try again.", "error");
+    } finally {
+      setIsSendingOtp(false); // STOP loader
     }
   };
 
   const handleEmailVerified = () => {
-    setEmailVerified(true); 
+    setEmailVerified(true);
   };
 
   return (
@@ -368,9 +417,7 @@ export default function Signup() {
               <div className="mx-auto mb-4 p-3 rounded-full bg-primary/10">
                 <UserPlus className="h-8 w-8 text-primary" />
               </div>
-              <CardTitle className="text-2xl">
-                Create Your UDIN Account
-              </CardTitle>
+              <CardTitle className="text-2xl">Create Your UDIN Account</CardTitle>
               <CardDescription>
                 Complete your registration to process your documents and receive
                 your unique UDIN User ID
@@ -423,15 +470,26 @@ export default function Signup() {
                       type="button"
                       variant={emailVerified ? "secondary" : "outline"}
                       onClick={handleEmailOtp}
-                      disabled={emailVerified}
+                      disabled={emailVerified || isSendingOtp || !formData.email}
                       className="shrink-0"
+                      aria-busy={isSendingOtp}
                     >
                       {emailVerified ? (
-                        <Shield className="h-4 w-4 mr-1" />
+                        <>
+                          <Shield className="h-4 w-4 mr-1" />
+                          Verified
+                        </>
+                      ) : isSendingOtp ? (
+                        <>
+                          <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                          Sending...
+                        </>
                       ) : (
-                        <Mail className="h-4 w-4 mr-1" />
+                        <>
+                          <Mail className="h-4 w-4 mr-1" />
+                          Verify
+                        </>
                       )}
-                      {emailVerified ? "Verified" : "Verify"}
                     </Button>
                   </div>
                 </div>
@@ -445,7 +503,7 @@ export default function Signup() {
                     required
                     value={formData.phone}
                     onChange={handleInputChange}
-                    placeholder="+91 9876543210"
+                    placeholder="9876543210(without country code)"
                   />
                 </div>
 
@@ -526,7 +584,7 @@ export default function Signup() {
                   size="lg"
                   disabled={!emailVerified || !formData.agreeToTerms}
                 >
-                  Create UDIN Account & Proceed to Payment
+                  Create UDIN Account &amp; Proceed to Payment
                 </Button>
               </form>
             </CardContent>
@@ -537,6 +595,7 @@ export default function Signup() {
       {showModal && (
         <EmailVerificationModal
           verificationId={verificationId}
+          email={formData.email}
           onClose={() => setShowModal(false)}
           onVerify={handleEmailVerified}
         />

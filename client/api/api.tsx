@@ -13,7 +13,7 @@ export type SignupForm = {
   agreeToTerms: boolean;
 };
 
-const API_URL = import.meta.env.VITE_API_BASE_URL || "https://your-server.com"; // Use environment variable for API URL
+const API_URL = import.meta.env.VITE_API_BASE_URL || "http://localhost:5000"; // Use environment variable for API URL
 
 // Helper function to handle API calls with axios
 const axiosInstance = axios.create({
@@ -157,26 +157,54 @@ export const uploadFilesToServer = async (
   try {
     const formData = new FormData();
 
-    // Add files to form data
-    files.forEach((fileItem) => {
-      // Convert Blob to File if needed
-      const file =
+    // Add files + per-file metadata
+    files.forEach((fileItem, index) => {
+      // Ensure we always send a File (not just a Blob)
+      const asFile =
         fileItem.file instanceof File
           ? fileItem.file
-          : new File([fileItem.file], fileItem.name, {
-              type: fileItem.file.type || "application/octet-stream",
-            });
+          : new File(
+              [fileItem.file],
+              // fall back to a safe filename if missing
+              fileItem.name || `upload-${index}`,
+              {
+                type:
+                  (fileItem.file as any)?.type ||
+                  "application/octet-stream",
+              },
+            );
 
-      formData.append("files", file);
-      
-      // Add file metadata
-      if (fileItem.documentTypeId) {
-        formData.append(`fileMetadata[${index}][documentTypeId]`, fileItem.documentTypeId);
+      // Multiple files can share the same field name "files"
+      formData.append("files", asFile);
+
+      // Per-file metadata (indexed, if your backend expects this shape)
+      if (fileItem.documentTypeId != null) {
+        formData.append(
+          `fileMetadata[${index}][documentTypeId]`,
+          String(fileItem.documentTypeId),
+        );
       }
-      if (fileItem.tier) {
-        formData.append(`fileMetadata[${index}][tier]`, fileItem.tier);
+      if (fileItem.tier != null) {
+        formData.append(`fileMetadata[${index}][tier]`, String(fileItem.tier));
       }
-      formData.append(`fileMetadata[${index}][originalId]`, fileItem.id);
+      formData.append(
+        `fileMetadata[${index}][originalId]`,
+        String(fileItem.id),
+      );
+      // Include filename too (often handy on the server)
+      if (fileItem.name) {
+        formData.append(`fileMetadata[${index}][name]`, String(fileItem.name));
+      }
+      // Pass through any extra keys (optional)
+      Object.entries(fileItem).forEach(([k, v]) => {
+        if (
+          ["id", "name", "file", "documentTypeId", "tier"].includes(k)
+        ) {
+          return;
+        }
+        if (v == null) return;
+        formData.append(`fileMetadata[${index}][${k}]`, String(v));
+      });
     });
 
     // Add additional data
@@ -186,34 +214,30 @@ export const uploadFilesToServer = async (
     if (pricingSnapshot)
       formData.append("pricingSnapshot", JSON.stringify(pricingSnapshot));
     if (metadata) formData.append("metadata", JSON.stringify(metadata));
-    
-    // Add timestamp
+
+    // Timestamp
     formData.append("uploadTimestamp", new Date().toISOString());
 
-    const response = await axiosInstance.post(
-      '/api/uploads/files',
-      formData,
-      {
-        headers: {
-          "Content-Type": "multipart/form-data",
-        },
-        timeout: 300000, // 5 minute timeout for file uploads
-        onUploadProgress: (progressEvent) => {
-          if (onProgress && progressEvent.total) {
-            const percentCompleted = Math.round(
-              (progressEvent.loaded * 100) / progressEvent.total,
-            );
-            onProgress(percentCompleted);
-          }
-        },
+    const response = await axiosInstance.post("/api/uploads/files", formData, {
+      headers: {
+        "Content-Type": "multipart/form-data",
       },
-    );
+      timeout: 300000, // 5 minutes
+      onUploadProgress: (progressEvent) => {
+        if (onProgress && progressEvent.total) {
+          const percentCompleted = Math.round(
+            (progressEvent.loaded * 100) / progressEvent.total,
+          );
+          onProgress(percentCompleted);
+        }
+      },
+    });
 
     return response.data;
   } catch (error: any) {
-    console.error('File upload error:', error);
+    console.error("File upload error:", error);
     throw new Error(
-      error.response?.data?.error || error.message || "File upload failed",
+      error?.response?.data?.error || error.message || "File upload failed",
     );
   }
 };

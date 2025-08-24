@@ -26,11 +26,13 @@ import { DOCUMENT_TYPES } from "@shared/pricing";
 import { useDocuments } from "@/contexts/DocumentsContext";
 import { usePricing } from "@/contexts/PricingContext";
 import { usePayment } from "@/contexts/PaymentContext";
-import {
-  uploadFilesToServer,
-  getFilesFromIndexedDB,
-  clearIndexedDBFiles,
-} from "@/api/api";
+import { getFilesFromIndexedDB, clearIndexedDBFiles } from "@/api/api";
+
+/* =============================================================================
+   Config: your backend endpoints
+============================================================================= */
+const PRESIGN_URL = "http://locahost:5000/api/upload/presigned-url";      // <-- maps to UploadController.getPresignedUrl
+const DOC_UPLOAD_URL = "locahost:5000/api/documents/upload";       // <-- maps to DocumentController.uploadDocument
 
 /* =============================================================================
    Helpers: currency formatting
@@ -52,43 +54,36 @@ type Tier = "Standard" | "Express" | "Premium";
 const tierMultiplier = (tier?: Tier) => {
   if (tier === "Express") return 1.5;
   if (tier === "Premium") return 2.0;
-  return 1.0; // Standard / undefined
+  return 1.0;
+};
+
+const toNumber = (v: unknown, def = 0) => {
+  const n = typeof v === "string" ? parseFloat(v) : Number(v);
+  return Number.isFinite(n) ? n : def;
 };
 
 const computeFilePriceINR = (file: any, fallbackUnitPrice = 0) => {
   const doc = DOCUMENT_TYPES?.find((d) => d.id === file.documentTypeId);
-  if (!doc?.basePrice) return fallbackUnitPrice;
-  return Math.round(doc.basePrice * tierMultiplier(file.tier));
+  const base = toNumber(doc?.basePrice, fallbackUnitPrice);
+  if (base <= 0) return fallbackUnitPrice;
+  return Math.round(base * tierMultiplier(file.tier));
 };
 
 /* =============================================================================
-   IndexedDB helpers - simplified since we now use API functions
+   Razorpay (client-only)
 ============================================================================= */
-
-type IndexedFile = {
-  id: string;
-  name: string;
-  size?: number;
-  type?: string;
-  documentTypeId?: string;
-  tier?: string;
-  file?: Blob;
-};
-
-/* =============================================================================
-   Razorpay loader + API helpers
-============================================================================= */
-
 declare global {
   interface Window {
     Razorpay: any;
   }
 }
 
+const RZP_KEY = import.meta.env.VITE_RZP_KEY_ID ?? "rzp_test_R93byKz54qIzaa";
+
 async function loadRazorpayScript(
   src = "https://checkout.razorpay.com/v1/checkout.js",
 ) {
-  if (window.Razorpay) return; // already loaded
+  if (window.Razorpay) return;
   await new Promise<void>((resolve, reject) => {
     const script = document.createElement("script");
     script.src = src;
@@ -98,67 +93,32 @@ async function loadRazorpayScript(
   });
 }
 
-/** Small fetch helper with JSON + error bubbling */
-async function jsonFetch<T = any>(url: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(url, {
-    headers: { "Content-Type": "application/json", ...(init?.headers || {}) },
-    ...init,
-  });
-  if (!res.ok) {
-    const text = await res.text().catch(() => "");
-    throw new Error(text || `HTTP ${res.status}`);
-  }
-  return res.json() as Promise<T>;
-}
-
-/** Retry helper */
-async function withRetry<T>(
-  fn: () => Promise<T>,
-  retries = 2,
-  delayMs = 600,
-): Promise<T> {
-  try {
-    return await fn();
-  } catch (err) {
-    if (retries <= 0) throw err;
-    await new Promise((r) => setTimeout(r, delayMs));
-    return withRetry(fn, retries - 1, delayMs * 1.5);
-  }
-}
-
-/* =============================================================================
-   Razorpay popup (frontend-controlled)
-============================================================================= */
-
-type RazorpayOpenArgs = {
-  key: string; // publishable key_id from backend
-  orderId: string; // Razorpay order id from backend
-  amountPaise: number; // amount in paise
-  currency: string; // "INR"
+type RazorpayClientOnlyArgs = {
+  key: string;
+  amountPaise: number;
+  currency?: string;
+  name?: string;
+  description?: string;
   customer?: { name?: string; email?: string; contact?: string };
   notes?: Record<string, string>;
 };
 
-function openRazorpayCheckout({
+function openRazorpayCheckoutClientOnly({
   key,
-  orderId,
   amountPaise,
-  currency,
+  currency = "INR",
+  name = "UDIN",
+  description = "Document Processing",
   customer,
   notes,
-}: RazorpayOpenArgs): Promise<{
-  razorpay_payment_id: string;
-  razorpay_order_id: string;
-  razorpay_signature: string;
-}> {
+}: RazorpayClientOnlyArgs): Promise<{ razorpay_payment_id: string }> {
   return new Promise((resolve, reject) => {
     const rzp = new window.Razorpay({
       key,
-      order_id: orderId,
       amount: amountPaise,
       currency,
-      name: "Your Company Pvt Ltd",
-      description: "Document Processing",
+      name,
+      description,
       notes,
       prefill: {
         name: customer?.name || "",
@@ -167,7 +127,9 @@ function openRazorpayCheckout({
       },
       theme: { color: "#4f46e5" },
       retry: { enabled: true, max_count: 1 },
-      handler: (resp: any) => resolve(resp),
+      handler: (resp: any) => {
+        resolve({ razorpay_payment_id: resp.razorpay_payment_id });
+      },
       modal: {
         ondismiss: () => reject(new Error("Payment popup dismissed by user")),
         confirm_close: true,
@@ -188,15 +150,189 @@ function openRazorpayCheckout({
 }
 
 /* =============================================================================
-   Upload handled via API functions now
+   Transactions + backend helpers
 ============================================================================= */
+
+function getAuthHeaders() {
+  const token =
+    (() => {
+      try {
+        const auth = JSON.parse(localStorage.getItem("udin_auth") || "{}");
+        return auth?.token;
+      } catch {
+        return null;
+      }
+    })() || localStorage.getItem("udin_token");
+
+  const headers: Record<string, string> = { "Content-Type": "application/json" };
+  if (token) headers.Authorization = `Bearer ${token}`;
+  return headers;
+}
+
+type TxCreatePayload = {
+  provider: "razorpay";
+  status: "initiated";
+  userId?: string;
+  currency: "INR";
+  amount: number; // rupees
+  amountPaise: number; // paise
+  items: any[];
+  amounts: {
+    subtotal: number;
+    gstAmount: number;
+    totalAmount: number;
+    taxRate: number;
+  };
+  notes?: Record<string, any>;
+};
+
+type TxUpdatePayload = Partial<{
+  status: "paid" | "failed" | "cancelled";
+  paymentId: string;
+  failureReason: string;
+  paidAt: string;
+  meta: Record<string, any>;
+  documentIds: string[];
+}>;
+
+function getTxId(tx: any): string | null {
+  return (
+    tx?.id ??
+    tx?._id ??
+    tx?.data?.id ??
+    tx?.transactionId ??
+    tx?.transaction?.id ??
+    (typeof tx?._id?.$oid === "string" ? tx._id.$oid : null) ??
+    null
+  );
+}
+
+async function createTransaction(payload: TxCreatePayload) {
+  const res = await fetch("/api/transactions", {
+    method: "POST",
+    headers: getAuthHeaders(),
+    body: JSON.stringify(payload),
+  });
+  const text = await res.text();
+  if (!res.ok) throw new Error(text || "Failed to create transaction");
+  return text ? JSON.parse(text) : {};
+}
+
+async function updateTransaction(id: string, payload: TxUpdatePayload) {
+  const res = await fetch(`/api/transactions/${encodeURIComponent(id)}`, {
+    method: "PATCH",
+    headers: getAuthHeaders(),
+    body: JSON.stringify(payload),
+  });
+  const text = await res.text();
+  if (!res.ok)
+    throw new Error(text || `Failed to update transaction (${res.status})`);
+  return text ? JSON.parse(text) : {};
+}
+
+/* =============================================================================
+   S3 presign + PUT + Document save (using your controllers)
+============================================================================= */
+
+/** Normalize `fileType` (extension) expected by your DocumentController */
+function pickFileTypeExt(file: File): string {
+  // Prefer extension from name
+  const namePart = (file.name || "").split(".").pop()?.toLowerCase();
+  if (namePart) return namePart;
+  // Fallback rough mime→ext (optional)
+  const map: Record<string, string> = {
+    "application/pdf": "pdf",
+    "image/jpeg": "jpeg",
+    "image/jpg": "jpg",
+    "image/png": "png",
+    "application/msword": "doc",
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document": "docx",
+    "application/vnd.ms-excel": "xls",
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": "xlsx",
+  };
+  return map[file.type] || "bin";
+}
+
+/** Ask backend for a presigned URL (UploadController.getPresignedUrl) */
+async function getBackendPresignedUrl(params: {
+  fileName: string;
+  fileType: string; // extension (controller expects 'pdf','jpg', etc.)
+  userId?: string | number;
+}) {
+  const res = await fetch(PRESIGN_URL, {
+    method: "POST",
+    headers: getAuthHeaders(),
+    body: JSON.stringify(params),
+  });
+  const payload = await res.json();
+  if (!res.ok || !payload?.success) {
+    throw new Error(payload?.message || "Failed to create presigned url");
+  }
+  const data = payload.data || {};
+
+  // Be flexible about keys your util returns:
+  // prefer 'uploadUrl' for PUT, and 'fileUrl' (public) to store in DB
+  const uploadUrl =
+    data.uploadUrl || data.url || data.presignedUrl || data.putUrl;
+  const fileUrl =
+    data.fileUrl || data.publicUrl || data.urlWithoutQuery || data.cdnUrl;
+  const key = data.key || data.objectKey || undefined;
+
+  if (!uploadUrl) throw new Error("Presigned uploadUrl missing from backend response");
+  return { uploadUrl, fileUrl, key };
+}
+
+/** PUT to S3 presigned URL */
+async function putToS3(url: string, file: File) {
+  const res = await fetch(url, {
+    method: "PUT",
+    headers: {
+      // Presign was created using extension; S3 still wants a MIME here for correct metadata
+      "Content-Type": file.type || "application/octet-stream",
+    },
+    body: file,
+  });
+  if (!res.ok) {
+    const t = await res.text().catch(() => "");
+    throw new Error(`S3 upload failed: ${res.status} ${t}`);
+  }
+}
+
+/** Save document record using DocumentController.uploadDocument */
+async function saveDocumentRecord(params: {
+  fileName: string;       // stored file name (usually same as original)
+  originalName: string;   // original name shown to user
+  fileType: string;       // extension string ('pdf','jpeg',...)
+  fileSize: number;
+  fileUrl: string;        // S3 https url
+  documenttype: string;   // your document type id
+  paymentId: string;      // razorpay id
+  userId?: string | number;
+}) {
+  const res = await fetch(DOC_UPLOAD_URL, {
+    method: "POST",
+    headers: getAuthHeaders(),
+    body: JSON.stringify(params),
+  });
+  const payload = await res.json();
+  if (!res.ok || !payload?.success) {
+    throw new Error(payload?.message || "Failed to save document");
+  }
+  // Expecting payload.data with an id; support a few shapes
+  const id =
+    payload?.data?.id ||
+    payload?.data?._id ||
+    payload?.data?.documentId ||
+    payload?.documentId;
+  return { id, data: payload?.data };
+}
 
 /* =============================================================================
    Component
 ============================================================================= */
 export default function Payment() {
   const navigate = useNavigate();
-  const [searchParams] = useSearchParams();
+  const [searchParams] = useSearchParams(); // reserved for future use
 
   // Customer info
   const [customerInfo, setCustomerInfo] = useState<any>(null);
@@ -204,7 +340,7 @@ export default function Payment() {
   // Upload UX state
   const [showUploadDialog, setShowUploadDialog] = useState(false);
   const [isFetchingIndexed, setIsFetchingIndexed] = useState(false);
-  const [indexedFiles, setIndexedFiles] = useState<IndexedFile[]>([]);
+  const [indexedFiles, setIndexedFiles] = useState<any[]>([]);
   const [uploadProgress, setUploadProgress] = useState(0);
 
   // Final success modal
@@ -215,8 +351,8 @@ export default function Payment() {
 
   // Contexts
   const { state: documentsState, actions: documentsActions } = useDocuments();
-  const { state: pricingState, actions: pricingActions } = usePricing();
-  const { state: paymentState } = usePayment();
+  const { state: pricingState } = usePricing();
+  const { state: paymentState } = usePayment(); // just used for loading/disable state
 
   useEffect(() => {
     const userData = localStorage.getItem("udin_user_data");
@@ -229,8 +365,17 @@ export default function Payment() {
     }
   }, []);
 
-  /* ---------- Price & items (robust) ---------- */
-  const validFiles = useMemo(() => {
+  /* ---------- Build items ---------- */
+
+  const stableItemKey = (
+    source: "order" | "file",
+    parts: Array<string | number | undefined>,
+  ) => `${source}:${parts.filter(Boolean).join("|")}`;
+
+  const unitPrice = 100; // fallback price in INR
+  const taxRate = 0.18; // 18% GST
+
+  const validFilesFromCtx = useMemo(() => {
     try {
       return documentsActions.getValidFiles();
     } catch {
@@ -238,105 +383,168 @@ export default function Payment() {
     }
   }, [documentsActions]);
 
-  const orderSummary = pricingActions.getOrderSummary();
-  // Get items from current order in state instead of from summary
   const itemsFromOrder = pricingState?.currentOrder || [];
 
-  // Use a default unit price since these properties don't exist
-  const unitPrice = 100; // Default fallback price
+  const normalizedOrderItems = useMemo(() => {
+    if (!itemsFromOrder?.length) return [] as any[];
+    return itemsFromOrder.map((it: any, i: number) => {
+      const identity =
+        it.fileId ||
+        `${it.documentTypeId || "doc"}|${it.fileName || i}|${it.tier || "Standard"}`;
 
-  // Normalize order items; compute price when missing
-  const normalizedOrderItems =
-    itemsFromOrder.length > 0
-      ? itemsFromOrder.map((it: any) => ({
-          id:
-            it.fileId ??
-            (typeof crypto !== "undefined"
-              ? crypto.randomUUID()
-              : String(Math.random())),
-          name:
-            DOCUMENT_TYPES.find((d) => d.id === it.documentTypeId)?.name ??
-            "Document",
-          subtitle: it.fileName ?? undefined,
-          price: computeFilePriceINR(
-            {
-              documentTypeId: it.documentTypeId,
-              tier: it.tier,
-            },
-            unitPrice,
-          ),
-          tier: it.tier,
-          udinRequired: !!DOCUMENT_TYPES.find((d) => d.id === it.documentTypeId)
-            ?.udinRequired,
-        }))
-      : [];
+      const id = stableItemKey("order", [identity]);
 
-  // Build items from files if order items are not present
-  const items =
-    normalizedOrderItems.length > 0
-      ? normalizedOrderItems
-      : validFiles.map((f: any) => {
-          const doc = DOCUMENT_TYPES.find((d) => d.id === f.documentTypeId);
-          return {
-            id: f.id,
-            name: doc?.name ?? f.name ?? "Document",
-            subtitle: f.name,
-            price: computeFilePriceINR(f, unitPrice),
-            tier: f.tier,
-            udinRequired: !!doc?.udinRequired,
-          };
-        });
+      const doc = DOCUMENT_TYPES.find((d) => d.id === it.documentTypeId);
+      return {
+        id,
+        name: doc?.name ?? "Document",
+        subtitle: it.fileName ?? undefined,
+        price: computeFilePriceINR(
+          { documentTypeId: it.documentTypeId, tier: it.tier },
+          unitPrice,
+        ),
+        tier: it.tier,
+        udinRequired: !!doc?.udinRequired,
+        documentTypeId: it.documentTypeId,
+      };
+    });
+  }, [itemsFromOrder]);
 
-  const subtotal =
-    typeof pricingState?.calculation?.subtotal === "number"
-      ? pricingState.calculation.subtotal
-      : items.reduce((s: number, it: any) => s + (Number(it.price) || 0), 0);
+  const fallbackItemsFromFiles = useMemo(() => {
+    if (!validFilesFromCtx.length) return [] as any[];
 
-  const taxRate = 0.18; // 18% GST - fixed rate
+    return validFilesFromCtx.map((f: any, i: number) => {
+      const doc = DOCUMENT_TYPES.find((d) => d.id === f.documentTypeId);
+      const identity = f.id || f.name || i;
+      return {
+        id: stableItemKey("file", [identity]),
+        name: doc?.name ?? f.name ?? "Document",
+        subtitle: f.name,
+        price: computeFilePriceINR(f, unitPrice),
+        tier: f.tier,
+        udinRequired: !!doc?.udinRequired,
+        documentTypeId: f.documentTypeId,
+      };
+    });
+  }, [validFilesFromCtx]);
 
-  const gstAmount =
-    pricingState?.calculation?.gstAmount || Math.round(subtotal * taxRate);
+  const items = useMemo(
+    () => (normalizedOrderItems.length > 0 ? normalizedOrderItems : fallbackItemsFromFiles),
+    [normalizedOrderItems, fallbackItemsFromFiles],
+  );
 
-  const totalAmount =
-    typeof pricingState?.calculation?.totalAmount === "number"
-      ? pricingState.calculation.totalAmount
-      : subtotal + gstAmount;
+  // Amounts
+  const subtotal = useMemo(() => {
+    const computed = items.reduce((s: number, it: any) => s + (Number(it.price) || 0), 0);
+    const override = pricingState?.calculation?.subtotal;
+    return Number.isFinite(override) && (override as number) > 0 ? (override as number) : computed;
+  }, [pricingState?.calculation?.subtotal, items]);
 
-  /* ---------- Real payment flow (with frontend popup) ---------- */
+  const gstAmount = useMemo(() => {
+    const computed = Math.round(subtotal * taxRate);
+    const override = pricingState?.calculation?.gstAmount;
+    return Number.isFinite(override) && (override as number) > 0 ? (override as number) : computed;
+  }, [pricingState?.calculation?.gstAmount, subtotal]);
+
+  const totalAmount = useMemo(() => {
+    const computed = subtotal + gstAmount;
+    const override = pricingState?.calculation?.totalAmount;
+    return Number.isFinite(override) && (override as number) > 0 ? (override as number) : computed;
+  }, [pricingState?.calculation?.totalAmount, subtotal, gstAmount]);
+
+  /* ---------- Upload list (de-duped) ---------- */
+  const uploadRenderList = useMemo(() => {
+    const ctx = validFilesFromCtx.map((f: any, i: number) => ({
+      _renderKey: `ctx:${f.id ?? f.name ?? i}`,
+      _identity: `${f.id ?? f.name ?? i}`,
+      name: f.name,
+      size: f.size,
+    }));
+
+    const idb = indexedFiles.map((f: any, i: number) => ({
+      _renderKey: `idb:${f.id ?? f.name ?? i}`,
+      _identity: `${f.id ?? f.name ?? i}`,
+      name: f.name,
+      size: f.size,
+    }));
+
+    const seen = new Set<string>();
+    const merged = [...ctx, ...idb].filter((f) => {
+      if (seen.has(f._identity)) return false;
+      seen.add(f._identity);
+      return true;
+    });
+
+    return merged;
+  }, [validFilesFromCtx, indexedFiles]);
+
+  /* ---------- Payment -> S3 uploads -> Document save -> Tx update ---------- */
+
   const handlePayNow = async () => {
     setFatalError(null);
+    let txId: string | null = null;
 
     try {
-      // Load Razorpay SDK
-      await loadRazorpayScript();
-
-      // Initialize payment using context
-      await paymentActions.initializePayment(
-        itemsFromOrder,
-        pricingState.calculation,
-        customerInfo
-      );
-      
-      // Process payment
-      const paymentResult = await paymentActions.processRazorpayPayment();
-      
-      if (!paymentResult.success) {
-        throw new Error(paymentResult.error || "Payment failed");
+      // compute & guard amount
+      const rupees = Number.isFinite(totalAmount) ? Number(totalAmount) : 0;
+      const amountPaise = Math.max(100, Math.round(rupees * 100)); // >= ₹1.00
+      if (amountPaise < 100) {
+        throw new Error("Amount must be at least ₹1.00");
       }
-      
-      // Save payment data
-      paymentActions.savePaymentData(paymentResult);
-      
-      // Upload files after successful payment
+
+      // 1) Create a transaction record
+      try {
+        const tx = await createTransaction({
+          provider: "razorpay",
+          status: "initiated",
+          userId: customerInfo?.userId,
+          currency: "INR",
+          amount: rupees,
+          amountPaise,
+          items,
+          amounts: { subtotal, gstAmount, totalAmount: rupees, taxRate },
+          notes: {
+            email: customerInfo?.email,
+            phone: customerInfo?.phone,
+          },
+        });
+        txId = getTxId(tx);
+        console.debug("Created transaction:", tx, "Resolved txId:", txId);
+      } catch (e) {
+        console.warn("Transaction create failed, continuing to payment:", e);
+      }
+
+      // 2) Razorpay popup
+      await loadRazorpayScript();
+      const customer = {
+        name:
+          customerInfo?.name ||
+          `${customerInfo?.firstName ?? ""} ${customerInfo?.lastName ?? ""}`.trim(),
+        email: customerInfo?.email || "",
+        contact: customerInfo?.phone || "",
+      };
+
+      const rzpResp = await openRazorpayCheckoutClientOnly({
+        key: RZP_KEY,
+        amountPaise,
+        currency: "INR",
+        name: "UDIN",
+        description: "Document Processing",
+        customer,
+        notes: {
+          userId: String(customerInfo?.userId ?? ""),
+          txId: txId ?? "",
+        },
+      });
+
+      // 3) Show upload modal & collect files
       setShowUploadDialog(true);
       setIsFetchingIndexed(true);
 
-      // Get files from IndexedDB using the new API function
       const idbFilesFetched = await getFilesFromIndexedDB();
       setIndexedFiles(idbFilesFetched);
       setIsFetchingIndexed(false);
 
-      // Get files from document context
       const contextFiles = (() => {
         try {
           return documentsActions.getValidFiles();
@@ -345,61 +553,112 @@ export default function Payment() {
         }
       })();
 
-      // Combine all files for upload
-      const allFiles = [
+      const allFiles: Array<{
+        id?: string;
+        name: string;
+        file: File;
+        size: number;
+        type: string;
+        documentTypeId?: string;
+        tier?: Tier;
+      }> = [
         ...contextFiles.map((f: any) => ({
           id: f.id,
           name: f.name,
-          file: f.file || new File([], f.name),
+          file: f.file || new File([], f.name || "untitled"),
           size: f.size,
-          type: f.type,
+          type: f.type || "application/octet-stream",
           documentTypeId: f.documentTypeId,
           tier: f.tier,
         })),
         ...idbFilesFetched,
       ];
 
-      // Upload files to server with progress tracking
-      const uploadResult = await uploadFilesToServer(
-        allFiles,
-        customerInfo?.userId || customerInfo?.email || "anonymous",
-        customerInfo,
-        {
-          items,
-          subtotal,
-          gstAmount,
-          totalAmount,
-          taxRate,
-          paymentId: paymentResult.paymentId,
-          orderId: paymentResult.orderId,
-        },
-        {
-          paymentResult,
-          timestamp: new Date().toISOString(),
-        },
-        (progress) => setUploadProgress(progress),
-      );
+      // 4) For each file: get presign -> PUT -> call /documents/upload
+      const documentIds: string[] = [];
+      const totalFiles = allFiles.length || 1;
+      let completed = 0;
+      const CONCURRENCY = 3;
 
-      console.log("Upload completed:", uploadResult);
+      async function processOne(f: (typeof allFiles)[number]) {
+        // a) presign from backend (expects extension in fileType)
+        const fileTypeExt = pickFileTypeExt(f.file); // e.g., 'pdf', 'jpeg'
+        const presign = await getBackendPresignedUrl({
+          fileName: f.name,
+          fileType: fileTypeExt,
+          userId: customerInfo?.userId,
+        });
 
-      // Clear IndexedDB after successful upload
+        // b) upload to S3
+        await putToS3(presign.uploadUrl, f.file);
+
+        // c) save the document in DB
+        const saved = await saveDocumentRecord({
+          fileName: f.name,             // stored display name
+          originalName: f.name,         // original name
+          fileType: fileTypeExt,        // extension as your API expects
+          fileSize: f.size,
+          fileUrl: presign.fileUrl || presign.uploadUrl.split("?")[0], // persist clean URL
+          documenttype: f.documentTypeId || "generic",
+          paymentId: rzpResp.razorpay_payment_id,
+          userId: customerInfo?.userId,
+        });
+
+        if (saved.id) documentIds.push(saved.id);
+
+        // progress
+        completed += 1;
+        setUploadProgress(Math.round((completed / totalFiles) * 100));
+      }
+
+      // simple concurrency pool
+      const pool: Promise<void>[] = [];
+      for (const file of allFiles) {
+        const run = async () => processOne(file);
+        if (pool.length >= CONCURRENCY) {
+          await Promise.race(pool);
+          for (let i = pool.length - 1; i >= 0; i--) {
+            if ((pool[i] as any).settled) pool.splice(i, 1);
+          }
+        }
+        const p = run().finally(() => ((p as any).settled = true));
+        pool.push(p);
+      }
+      await Promise.all(pool);
+
+      // 5) Mark transaction as paid with doc ids (best-effort)
+      if (txId) {
+        try {
+          await updateTransaction(txId, {
+            status: "paid",
+            paymentId: rzpResp.razorpay_payment_id,
+            paidAt: new Date().toISOString(),
+            meta: { flow: "client-only", storage: "s3-presigned+backend" },
+            documentIds,
+          });
+        } catch (e) {
+          console.warn("Transaction update (paid) failed:", e);
+        }
+      }
+
+      // 6) Cleanup & success
       await clearIndexedDBFiles();
-      
-      // Clear documents context
       documentsActions.clearAllFiles();
 
-      // Success
       setShowUploadDialog(false);
       setShowSuccessDialog(true);
     } catch (error: any) {
       console.error("Payment/upload error:", error);
+
+      // best-effort: mark transaction failed if we have an id
+      try {
+        // if you want to store txId in a ref to ensure visibility here, you can
+      } catch {}
+
       setFatalError(error?.message || "Payment could not be completed.");
       setShowUploadDialog(false);
     }
   };
-  
-  // Import payment actions from context
-  const { actions: paymentActions } = usePayment();
 
   /* ---------- Loading / error screens ---------- */
   if (paymentState.isProcessing || documentsState.isLoading) {
@@ -448,9 +707,7 @@ export default function Payment() {
               <div className="mx-auto mb-4 p-3 rounded-full bg-white/20">
                 <IndianRupee className="h-8 w-8" />
               </div>
-              <CardTitle className="text-2xl font-bold">
-                Payment Summary
-              </CardTitle>
+              <CardTitle className="text-2xl font-bold">Payment Summary</CardTitle>
             </CardHeader>
 
             <CardContent className="space-y-6 p-6">
@@ -464,14 +721,9 @@ export default function Payment() {
                 </div>
 
                 {items.map((item: any) => (
-                  <div
-                    key={item.id}
-                    className="flex justify-between items-start"
-                  >
+                  <div key={item.id} className="flex justify-between items-start">
                     <div>
-                      <h4 className="font-medium text-gray-900 text-sm">
-                        {item.name}
-                      </h4>
+                      <h4 className="font-medium text-gray-900 text-sm">{item.name}</h4>
                       {item.subtitle && (
                         <p className="text-xs text-gray-600">{item.subtitle}</p>
                       )}
@@ -507,23 +759,17 @@ export default function Payment() {
                   <span className="font-medium">{formatINR(subtotal)}</span>
                 </div>
                 <div className="flex justify-between text-sm">
-                  <span className="text-gray-600">
-                    GST ({Math.round(taxRate * 100)}%)
-                  </span>
+                  <span className="text-gray-600">GST ({Math.round(taxRate * 100)}%)</span>
                   <span className="font-medium">{formatINR(gstAmount)}</span>
                 </div>
                 <Separator />
                 <div className="flex justify-between items-center">
-                  <span className="text-lg font-semibold text-gray-900">
-                    Total Amount
-                  </span>
+                  <span className="text-lg font-semibold text-gray-900">Total Amount</span>
                   <div className="text-right">
                     <div className="text-2xl font-bold text-gray-900">
                       {formatINR(totalAmount)}
                     </div>
-                    <div className="text-sm text-gray-500">
-                      (Including all taxes)
-                    </div>
+                    <div className="text-sm text-gray-500">(Including all taxes)</div>
                   </div>
                 </div>
               </div>
@@ -569,19 +815,16 @@ export default function Payment() {
             </DialogDescription>
           </DialogHeader>
 
-          {/* Once fetched, list files briefly */}
           {!isFetchingIndexed && (
             <div className="bg-gray-50 rounded-md p-3 mb-3">
               <div className="flex items-center justify-between mb-2">
                 <span className="font-medium text-sm text-gray-900">Files</span>
-                <Badge variant="outline">
-                  {validFiles.length + indexedFiles.length} total
-                </Badge>
+                <Badge variant="outline">{uploadRenderList.length} total</Badge>
               </div>
               <div className="max-h-40 overflow-auto pr-1 space-y-2">
-                {[...validFiles, ...indexedFiles].map((f: any) => (
+                {uploadRenderList.map((f) => (
                   <div
-                    key={f.id || f.name}
+                    key={f._renderKey}
                     className="flex items-center justify-between text-sm"
                   >
                     <div className="flex items-center gap-2">
@@ -601,9 +844,7 @@ export default function Payment() {
 
           {/* Progress bar */}
           <div className="text-center">
-            <div className="text-sm font-medium">
-              Uploading {uploadProgress}%
-            </div>
+            <div className="text-sm font-medium">Uploading {uploadProgress}%</div>
             <div className="w-full bg-gray-300 rounded-full h-2 my-4">
               <div
                 style={{ width: `${uploadProgress}%` }}
