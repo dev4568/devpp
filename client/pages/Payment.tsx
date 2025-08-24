@@ -243,19 +243,16 @@ export default function Payment() {
   const normalizedOrderItems =
     itemsFromOrder.length > 0
       ? itemsFromOrder.map((it: any) => ({
-          id: it.id ?? it.fileId ?? (typeof crypto !== "undefined" ? crypto.randomUUID() : String(Math.random())),
-          name: it.name ?? it.fileName ?? "Document",
+          id: it.fileId ?? (typeof crypto !== "undefined" ? crypto.randomUUID() : String(Math.random())),
+          name: DOCUMENT_TYPES.find(d => d.id === it.documentTypeId)?.name ?? "Document",
           subtitle: it.fileName ?? undefined,
-          price:
-            typeof it.price === "number"
-              ? it.price
-              : computeFilePriceINR(
-                  {
-                    documentTypeId: it.documentTypeId,
-                    tier: it.tier,
-                  },
-                  unitPrice
-                ),
+          price: computeFilePriceINR(
+            {
+              documentTypeId: it.documentTypeId,
+              tier: it.tier,
+            },
+            unitPrice
+          ),
           tier: it.tier,
           udinRequired: !!DOCUMENT_TYPES.find((d) => d.id === it.documentTypeId)?.udinRequired,
         }))
