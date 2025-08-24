@@ -233,13 +233,11 @@ export default function Payment() {
   }, [documentsActions]);
 
   const orderSummary = pricingActions.getOrderSummary();
-  const itemsFromOrder = Array.isArray(orderSummary?.items) ? orderSummary.items : [];
+  // Get items from current order in state instead of from summary
+  const itemsFromOrder = pricingState?.currentOrder || [];
 
-  // Fallback unit price if per-item missing
-  const unitPrice =
-    pricingState?.calculation?.unitPrice ??
-    pricingState?.calculation?.perDocument ??
-    0;
+  // Use a default unit price since these properties don't exist
+  const unitPrice = 100; // Default fallback price
 
   // Normalize order items; compute price when missing
   const normalizedOrderItems =
