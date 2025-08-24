@@ -38,5 +38,10 @@ export function createServer() {
   app.post("/api/payment/webhook", handleWebhook);
   app.get("/api/payment/config", getConfig);
 
+  // File upload routes
+  app.post("/api/uploads/files", uploadFiles);
+  app.get("/api/uploads/status/:uploadId", getUploadStatus);
+  app.get("/api/uploads/user/:userId", getUserUploads);
+
   return app;
 }
