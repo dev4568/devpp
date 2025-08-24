@@ -26,6 +26,11 @@ import { DOCUMENT_TYPES } from "@shared/pricing";
 import { useDocuments } from "@/contexts/DocumentsContext";
 import { usePricing } from "@/contexts/PricingContext";
 import { usePayment } from "@/contexts/PaymentContext";
+import {
+  uploadFilesToServer,
+  getFilesFromIndexedDB,
+  clearIndexedDBFiles
+} from "@/api/api";
 
 /* =============================================================================
    Helpers: currency formatting
