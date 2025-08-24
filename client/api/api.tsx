@@ -1,6 +1,6 @@
 //@ts-nocheck
 // src/api/udin.ts
-import axios from 'axios';
+import axios from "axios";
 
 export type SignupForm = {
   firstName: string;
@@ -13,13 +13,13 @@ export type SignupForm = {
   agreeToTerms: boolean;
 };
 
-const API_URL = 'http://localhost:5000'; // Replace with your actual API URL
+const API_URL = "http://localhost:5000"; // Replace with your actual API URL
 
 // Helper function to handle API calls with axios
 const axiosInstance = axios.create({
   baseURL: API_URL,
   headers: {
-    'Content-Type': 'application/json',
+    "Content-Type": "application/json",
   },
 });
 
@@ -28,7 +28,7 @@ const axiosInstance = axios.create({
  */
 export async function sendEmailOtp(email: string) {
   try {
-    const response = await axiosInstance.post('/api/auth/send-otp', { email });
+    const response = await axiosInstance.post("/api/auth/send-otp", { email });
     return response.data;
   } catch (error) {
     throw new Error("Failed to send email OTP");
@@ -40,7 +40,7 @@ export async function sendEmailOtp(email: string) {
  */
 export async function sendPhoneOtp(phone: string) {
   try {
-    const response = await axiosInstance.post('/send-phone-otp', { phone });
+    const response = await axiosInstance.post("/send-phone-otp", { phone });
     return response.data;
   } catch (error) {
     throw new Error("Failed to send phone OTP");
@@ -52,7 +52,10 @@ export async function sendPhoneOtp(phone: string) {
  */
 export async function verifyEmailOtp(email: string, otp: string) {
   try {
-    const response = await axiosInstance.post('/api/auth/verify-email', { email, otp });
+    const response = await axiosInstance.post("/api/auth/verify-email", {
+      email,
+      otp,
+    });
     return response.data;
   } catch (error) {
     throw new Error("Invalid email OTP");
@@ -64,7 +67,10 @@ export async function verifyEmailOtp(email: string, otp: string) {
  */
 export async function verifyPhoneOtp(phone: string, otp: string) {
   try {
-    const response = await axiosInstance.post('/verify-phone-otp', { phone, otp });
+    const response = await axiosInstance.post("/verify-phone-otp", {
+      phone,
+      otp,
+    });
     return response.data;
   } catch (error) {
     throw new Error("Invalid phone OTP");
@@ -76,20 +82,19 @@ export async function verifyPhoneOtp(phone: string, otp: string) {
  */
 export async function createAccount(formData: SignupForm) {
   try {
-    const response = await axiosInstance.post('/api/auth/register', formData);
+    const response = await axiosInstance.post("/api/auth/register", formData);
     return response.data;
   } catch (error) {
     throw new Error("Failed to create account");
   }
 }
 
-
 export const loginUser = async (email, password) => {
   try {
     const response = await axios.post(`${API_URL}/login`, { email, password });
     return response.data;
   } catch (error) {
-    throw new Error(error.response?.data?.message || 'Failed to log in');
+    throw new Error(error.response?.data?.message || "Failed to log in");
   }
 };
 
@@ -99,19 +104,25 @@ export const forgotPassword = async (email) => {
     const response = await axios.post(`${API_URL}/forgot-password`, { email });
     return response.data;
   } catch (error) {
-    throw new Error(error.response?.data?.message || 'Failed to send password reset link');
+    throw new Error(
+      error.response?.data?.message || "Failed to send password reset link",
+    );
   }
 };
 
-
 // Updated file upload function that handles IndexedDB files and additional data
 export const uploadFilesToServer = async (
-  files: Array<{ id: string; name: string; file: File | Blob; [key: string]: any }>,
+  files: Array<{
+    id: string;
+    name: string;
+    file: File | Blob;
+    [key: string]: any;
+  }>,
   userId: string,
   customerInfo?: any,
   pricingSnapshot?: any,
   metadata?: any,
-  onProgress?: (progress: number) => void
+  onProgress?: (progress: number) => void,
 ) => {
   try {
     const formData = new FormData();
@@ -119,47 +130,62 @@ export const uploadFilesToServer = async (
     // Add files to form data
     files.forEach((fileItem) => {
       // Convert Blob to File if needed
-      const file = fileItem.file instanceof File
-        ? fileItem.file
-        : new File([fileItem.file], fileItem.name, { type: fileItem.file.type || 'application/octet-stream' });
+      const file =
+        fileItem.file instanceof File
+          ? fileItem.file
+          : new File([fileItem.file], fileItem.name, {
+              type: fileItem.file.type || "application/octet-stream",
+            });
 
       formData.append("files", file);
     });
 
     // Add additional data
     if (userId) formData.append("userId", userId);
-    if (customerInfo) formData.append("customerInfo", JSON.stringify(customerInfo));
-    if (pricingSnapshot) formData.append("pricingSnapshot", JSON.stringify(pricingSnapshot));
+    if (customerInfo)
+      formData.append("customerInfo", JSON.stringify(customerInfo));
+    if (pricingSnapshot)
+      formData.append("pricingSnapshot", JSON.stringify(pricingSnapshot));
     if (metadata) formData.append("metadata", JSON.stringify(metadata));
 
-    const response = await axios.post(`${API_URL}/api/uploads/files`, formData, {
-      headers: {
-        "Content-Type": "multipart/form-data",
+    const response = await axios.post(
+      `${API_URL}/api/uploads/files`,
+      formData,
+      {
+        headers: {
+          "Content-Type": "multipart/form-data",
+        },
+        onUploadProgress: (progressEvent) => {
+          if (onProgress && progressEvent.total) {
+            const percentCompleted = Math.round(
+              (progressEvent.loaded * 100) / progressEvent.total,
+            );
+            onProgress(percentCompleted);
+          }
+        },
       },
-      onUploadProgress: (progressEvent) => {
-        if (onProgress && progressEvent.total) {
-          const percentCompleted = Math.round((progressEvent.loaded * 100) / progressEvent.total);
-          onProgress(percentCompleted);
-        }
-      },
-    });
+    );
 
     return response.data;
   } catch (error: any) {
-    throw new Error(error.response?.data?.error || error.message || "File upload failed");
+    throw new Error(
+      error.response?.data?.error || error.message || "File upload failed",
+    );
   }
 };
 
 // Function to get files from IndexedDB and convert them to uploadable format
-export const getFilesFromIndexedDB = async (): Promise<Array<{
-  id: string;
-  name: string;
-  file: Blob;
-  size?: number;
-  type?: string;
-  documentTypeId?: string;
-  tier?: string;
-}>> => {
+export const getFilesFromIndexedDB = async (): Promise<
+  Array<{
+    id: string;
+    name: string;
+    file: Blob;
+    size?: number;
+    type?: string;
+    documentTypeId?: string;
+    tier?: string;
+  }>
+> => {
   const DB_NAME = "udin_files_db";
   const STORE_NAME = "uploaded_files";
 
@@ -176,7 +202,7 @@ export const getFilesFromIndexedDB = async (): Promise<Array<{
         return;
       }
 
-      const transaction = db.transaction([STORE_NAME], 'readonly');
+      const transaction = db.transaction([STORE_NAME], "readonly");
       const store = transaction.objectStore(STORE_NAME);
       const getAllRequest = store.getAll();
 
@@ -184,15 +210,17 @@ export const getFilesFromIndexedDB = async (): Promise<Array<{
 
       getAllRequest.onsuccess = () => {
         const files = getAllRequest.result || [];
-        resolve(files.map((file: any) => ({
-          id: file.id,
-          name: file.name,
-          file: file.file,
-          size: file.size,
-          type: file.type,
-          documentTypeId: file.documentTypeId,
-          tier: file.tier
-        })));
+        resolve(
+          files.map((file: any) => ({
+            id: file.id,
+            name: file.name,
+            file: file.file,
+            size: file.size,
+            type: file.type,
+            documentTypeId: file.documentTypeId,
+            tier: file.tier,
+          })),
+        );
       };
     };
   });
@@ -216,7 +244,7 @@ export const clearIndexedDBFiles = async (): Promise<void> => {
         return;
       }
 
-      const transaction = db.transaction([STORE_NAME], 'readwrite');
+      const transaction = db.transaction([STORE_NAME], "readwrite");
       const store = transaction.objectStore(STORE_NAME);
       const clearRequest = store.clear();
 
@@ -229,10 +257,14 @@ export const clearIndexedDBFiles = async (): Promise<void> => {
 // Get upload status
 export const getUploadStatus = async (uploadId: string) => {
   try {
-    const response = await axios.get(`${API_URL}/api/uploads/status/${uploadId}`);
+    const response = await axios.get(
+      `${API_URL}/api/uploads/status/${uploadId}`,
+    );
     return response.data;
   } catch (error: any) {
-    throw new Error(error.response?.data?.error || "Failed to get upload status");
+    throw new Error(
+      error.response?.data?.error || "Failed to get upload status",
+    );
   }
 };
 
@@ -242,6 +274,8 @@ export const getUserUploads = async (userId: string) => {
     const response = await axios.get(`${API_URL}/api/uploads/user/${userId}`);
     return response.data;
   } catch (error: any) {
-    throw new Error(error.response?.data?.error || "Failed to get user uploads");
+    throw new Error(
+      error.response?.data?.error || "Failed to get user uploads",
+    );
   }
 };

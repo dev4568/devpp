@@ -29,7 +29,7 @@ import { usePayment } from "@/contexts/PaymentContext";
 import {
   uploadFilesToServer,
   getFilesFromIndexedDB,
-  clearIndexedDBFiles
+  clearIndexedDBFiles,
 } from "@/api/api";
 
 /* =============================================================================
@@ -85,7 +85,9 @@ declare global {
   }
 }
 
-async function loadRazorpayScript(src = "https://checkout.razorpay.com/v1/checkout.js") {
+async function loadRazorpayScript(
+  src = "https://checkout.razorpay.com/v1/checkout.js",
+) {
   if (window.Razorpay) return; // already loaded
   await new Promise<void>((resolve, reject) => {
     const script = document.createElement("script");
@@ -110,7 +112,11 @@ async function jsonFetch<T = any>(url: string, init?: RequestInit): Promise<T> {
 }
 
 /** Retry helper */
-async function withRetry<T>(fn: () => Promise<T>, retries = 2, delayMs = 600): Promise<T> {
+async function withRetry<T>(
+  fn: () => Promise<T>,
+  retries = 2,
+  delayMs = 600,
+): Promise<T> {
   try {
     return await fn();
   } catch (err) {
@@ -125,10 +131,10 @@ async function withRetry<T>(fn: () => Promise<T>, retries = 2, delayMs = 600): P
 ============================================================================= */
 
 type RazorpayOpenArgs = {
-  key: string;              // publishable key_id from backend
-  orderId: string;          // Razorpay order id from backend
-  amountPaise: number;      // amount in paise
-  currency: string;         // "INR"
+  key: string; // publishable key_id from backend
+  orderId: string; // Razorpay order id from backend
+  amountPaise: number; // amount in paise
+  currency: string; // "INR"
   customer?: { name?: string; email?: string; contact?: string };
   notes?: Record<string, string>;
 };
@@ -243,18 +249,25 @@ export default function Payment() {
   const normalizedOrderItems =
     itemsFromOrder.length > 0
       ? itemsFromOrder.map((it: any) => ({
-          id: it.fileId ?? (typeof crypto !== "undefined" ? crypto.randomUUID() : String(Math.random())),
-          name: DOCUMENT_TYPES.find(d => d.id === it.documentTypeId)?.name ?? "Document",
+          id:
+            it.fileId ??
+            (typeof crypto !== "undefined"
+              ? crypto.randomUUID()
+              : String(Math.random())),
+          name:
+            DOCUMENT_TYPES.find((d) => d.id === it.documentTypeId)?.name ??
+            "Document",
           subtitle: it.fileName ?? undefined,
           price: computeFilePriceINR(
             {
               documentTypeId: it.documentTypeId,
               tier: it.tier,
             },
-            unitPrice
+            unitPrice,
           ),
           tier: it.tier,
-          udinRequired: !!DOCUMENT_TYPES.find((d) => d.id === it.documentTypeId)?.udinRequired,
+          udinRequired: !!DOCUMENT_TYPES.find((d) => d.id === it.documentTypeId)
+            ?.udinRequired,
         }))
       : [];
 
@@ -281,29 +294,28 @@ export default function Payment() {
 
   const taxRate = 0.18; // 18% GST - fixed rate
 
-  const gstAmount = pricingState?.calculation?.gstAmount || Math.round(subtotal * taxRate);
+  const gstAmount =
+    pricingState?.calculation?.gstAmount || Math.round(subtotal * taxRate);
 
   const totalAmount =
     typeof pricingState?.calculation?.totalAmount === "number"
       ? pricingState.calculation.totalAmount
       : subtotal + gstAmount;
 
-      const BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://localhost:5000";
+  const BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://localhost:5000";
 
   /* ---------- Real payment flow (with frontend popup) ---------- */
-/* ---------- Real payment flow (with frontend popup) ---------- */
-const handlePayNow = async () => {
-  setFatalError(null);
+  /* ---------- Real payment flow (with frontend popup) ---------- */
+  const handlePayNow = async () => {
+    setFatalError(null);
 
-  try {
-    // Load Razorpay SDK
-    await loadRazorpayScript();
+    try {
+      // Load Razorpay SDK
+      await loadRazorpayScript();
 
-    // 1) Create Razorpay order
-    
-    
-    
-/*     const { orderId, amount, currency, razorpayKeyId } = await jsonFetch<{
+      // 1) Create Razorpay order
+
+      /*     const { orderId, amount, currency, razorpayKeyId } = await jsonFetch<{
       orderId: string;
       amount: number;   // paise
       currency: string; // "INR"
@@ -320,8 +332,8 @@ const handlePayNow = async () => {
       }),
     });
  */
-    // 2) Create a pending transaction
-/*     const { transactionId } = await jsonFetch<{ transactionId: string }>(
+      // 2) Create a pending transaction
+      /*     const { transactionId } = await jsonFetch<{ transactionId: string }>(
       `${BASE_URL}/transactions`,
       {
         method: "POST",
@@ -338,8 +350,8 @@ const handlePayNow = async () => {
       }
     );
  */
-    // 3) Open Razorpay popup
-/*     const resp = await openRazorpayCheckout({
+      // 3) Open Razorpay popup
+      /*     const resp = await openRazorpayCheckout({
       key: razorpayKeyId,
       orderId,
       amountPaise: amount,
@@ -352,8 +364,8 @@ const handlePayNow = async () => {
       notes: { transactionId },
     });
  */
-    // 4) Verify payment on backend
-/*     const verify = await jsonFetch<{ verified: boolean }>(`${BASE_URL}/payments/verify`, {
+      // 4) Verify payment on backend
+      /*     const verify = await jsonFetch<{ verified: boolean }>(`${BASE_URL}/payments/verify`, {
       method: "POST",
       body: JSON.stringify({
         orderId: resp.razorpay_order_id,
@@ -363,8 +375,8 @@ const handlePayNow = async () => {
     });
     if (!verify.verified) throw new Error("Payment verification failed");
  */
-    // 5) Mark transaction as paid
-/*     await jsonFetch(`${BASE_URL}/transactions/${transactionId}/status`, {
+      // 5) Mark transaction as paid
+      /*     await jsonFetch(`${BASE_URL}/transactions/${transactionId}/status`, {
       method: "PATCH",
       body: JSON.stringify({
         status: "paid",
@@ -372,70 +384,68 @@ const handlePayNow = async () => {
       }),
     });
  */
-    // 6) Upload files
-    setShowUploadDialog(true);
-    setIsFetchingIndexed(true);
+      // 6) Upload files
+      setShowUploadDialog(true);
+      setIsFetchingIndexed(true);
 
-    // Get files from IndexedDB using the new API function
-    const idbFilesFetched = await getFilesFromIndexedDB();
-    setIndexedFiles(idbFilesFetched);
-    setIsFetchingIndexed(false);
+      // Get files from IndexedDB using the new API function
+      const idbFilesFetched = await getFilesFromIndexedDB();
+      setIndexedFiles(idbFilesFetched);
+      setIsFetchingIndexed(false);
 
-    // Get files from document context
-    const contextFiles = (() => {
-      try {
-        return documentsActions.getValidFiles();
-      } catch {
-        return [];
-      }
-    })();
+      // Get files from document context
+      const contextFiles = (() => {
+        try {
+          return documentsActions.getValidFiles();
+        } catch {
+          return [];
+        }
+      })();
 
-    // Combine all files for upload
-    const allFiles = [
-      ...contextFiles.map((f: any) => ({
-        id: f.id,
-        name: f.name,
-        file: f.file || new File([], f.name),
-        size: f.size,
-        type: f.type,
-        documentTypeId: f.documentTypeId,
-        tier: f.tier
-      })),
-      ...idbFilesFetched
-    ];
+      // Combine all files for upload
+      const allFiles = [
+        ...contextFiles.map((f: any) => ({
+          id: f.id,
+          name: f.name,
+          file: f.file || new File([], f.name),
+          size: f.size,
+          type: f.type,
+          documentTypeId: f.documentTypeId,
+          tier: f.tier,
+        })),
+        ...idbFilesFetched,
+      ];
 
-    // Upload files to server with progress tracking
-    const uploadResult = await uploadFilesToServer(
-      allFiles,
-      customerInfo?.userId || customerInfo?.email || 'anonymous',
-      customerInfo,
-      {
-        items,
-        subtotal,
-        gstAmount,
-        totalAmount,
-        taxRate,
-      },
-      {}, // metadata
-      (progress) => setUploadProgress(progress)
-    );
+      // Upload files to server with progress tracking
+      const uploadResult = await uploadFilesToServer(
+        allFiles,
+        customerInfo?.userId || customerInfo?.email || "anonymous",
+        customerInfo,
+        {
+          items,
+          subtotal,
+          gstAmount,
+          totalAmount,
+          taxRate,
+        },
+        {}, // metadata
+        (progress) => setUploadProgress(progress),
+      );
 
-    console.log('Upload completed:', uploadResult);
+      console.log("Upload completed:", uploadResult);
 
-    // 7) Clear IndexedDB after successful upload
-    await clearIndexedDBFiles();
+      // 7) Clear IndexedDB after successful upload
+      await clearIndexedDBFiles();
 
-    // Success
-    setShowUploadDialog(false);
-    setShowSuccessDialog(true);
-  } catch (error: any) {
-    console.error("Payment/upload error:", error);
-    setFatalError(error?.message || "Payment could not be completed.");
-    setShowUploadDialog(false);
-  }
-};
-
-
+      // Success
+      setShowUploadDialog(false);
+      setShowSuccessDialog(true);
+    } catch (error: any) {
+      console.error("Payment/upload error:", error);
+      setFatalError(error?.message || "Payment could not be completed.");
+      setShowUploadDialog(false);
+    }
+  };
 
   /* ---------- Loading / error screens ---------- */
   if (paymentState.isProcessing || documentsState.isLoading) {
@@ -484,7 +494,9 @@ const handlePayNow = async () => {
               <div className="mx-auto mb-4 p-3 rounded-full bg-white/20">
                 <IndianRupee className="h-8 w-8" />
               </div>
-              <CardTitle className="text-2xl font-bold">Payment Summary</CardTitle>
+              <CardTitle className="text-2xl font-bold">
+                Payment Summary
+              </CardTitle>
             </CardHeader>
 
             <CardContent className="space-y-6 p-6">
@@ -498,9 +510,14 @@ const handlePayNow = async () => {
                 </div>
 
                 {items.map((item: any) => (
-                  <div key={item.id} className="flex justify-between items-start">
+                  <div
+                    key={item.id}
+                    className="flex justify-between items-start"
+                  >
                     <div>
-                      <h4 className="font-medium text-gray-900 text-sm">{item.name}</h4>
+                      <h4 className="font-medium text-gray-900 text-sm">
+                        {item.name}
+                      </h4>
                       {item.subtitle && (
                         <p className="text-xs text-gray-600">{item.subtitle}</p>
                       )}
@@ -521,7 +538,9 @@ const handlePayNow = async () => {
                       </div>
                     </div>
                     <div className="text-right">
-                      <div className="font-medium text-sm">{formatINR(Number(item.price))}</div>
+                      <div className="font-medium text-sm">
+                        {formatINR(Number(item.price))}
+                      </div>
                     </div>
                   </div>
                 ))}
@@ -534,17 +553,23 @@ const handlePayNow = async () => {
                   <span className="font-medium">{formatINR(subtotal)}</span>
                 </div>
                 <div className="flex justify-between text-sm">
-                  <span className="text-gray-600">GST ({Math.round(taxRate * 100)}%)</span>
+                  <span className="text-gray-600">
+                    GST ({Math.round(taxRate * 100)}%)
+                  </span>
                   <span className="font-medium">{formatINR(gstAmount)}</span>
                 </div>
                 <Separator />
                 <div className="flex justify-between items-center">
-                  <span className="text-lg font-semibold text-gray-900">Total Amount</span>
+                  <span className="text-lg font-semibold text-gray-900">
+                    Total Amount
+                  </span>
                   <div className="text-right">
                     <div className="text-2xl font-bold text-gray-900">
                       {formatINR(totalAmount)}
                     </div>
-                    <div className="text-sm text-gray-500">(Including all taxes)</div>
+                    <div className="text-sm text-gray-500">
+                      (Including all taxes)
+                    </div>
                   </div>
                 </div>
               </div>
@@ -553,7 +578,9 @@ const handlePayNow = async () => {
               {(paymentState.error || fatalError) && (
                 <Alert variant="destructive">
                   <AlertCircle className="h-4 w-4" />
-                  <AlertDescription>{fatalError || paymentState.error}</AlertDescription>
+                  <AlertDescription>
+                    {fatalError || paymentState.error}
+                  </AlertDescription>
                 </Alert>
               )}
 
@@ -620,7 +647,9 @@ const handlePayNow = async () => {
 
           {/* Progress bar */}
           <div className="text-center">
-            <div className="text-sm font-medium">Uploading {uploadProgress}%</div>
+            <div className="text-sm font-medium">
+              Uploading {uploadProgress}%
+            </div>
             <div className="w-full bg-gray-300 rounded-full h-2 my-4">
               <div
                 style={{ width: `${uploadProgress}%` }}
@@ -640,14 +669,17 @@ const handlePayNow = async () => {
               Files Uploaded
             </DialogTitle>
             <DialogDescription>
-              Your files were uploaded successfully. Login to your dashboard to see the status.
+              Your files were uploaded successfully. Login to your dashboard to
+              see the status.
             </DialogDescription>
           </DialogHeader>
           <div className="text-center py-4">
             <div className="text-2xl font-bold text-green-600">
               {formatINR(totalAmount)}
             </div>
-            <div className="text-sm text-gray-500 mt-1">Payment and upload completed</div>
+            <div className="text-sm text-gray-500 mt-1">
+              Payment and upload completed
+            </div>
           </div>
           <div className="flex justify-end">
             <Button
