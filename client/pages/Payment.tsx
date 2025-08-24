@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -19,129 +19,610 @@ import {
   IndianRupee,
   AlertCircle,
   ArrowLeft,
+  FileText,
 } from "lucide-react";
+
+import { DOCUMENT_TYPES } from "@shared/pricing";
 import { useDocuments } from "@/contexts/DocumentsContext";
 import { usePricing } from "@/contexts/PricingContext";
 import { usePayment } from "@/contexts/PaymentContext";
 
+/* =============================================================================
+   Helpers: currency formatting
+============================================================================= */
+const formatINR = (n?: number) =>
+  typeof n === "number"
+    ? n.toLocaleString("en-IN", {
+        style: "currency",
+        currency: "INR",
+        maximumFractionDigits: 2,
+      })
+    : "—";
+
+/* =============================================================================
+   Tier & price helpers
+============================================================================= */
+type Tier = "Standard" | "Express" | "Premium";
+
+const tierMultiplier = (tier?: Tier) => {
+  if (tier === "Express") return 1.5;
+  if (tier === "Premium") return 2.0;
+  return 1.0; // Standard / undefined
+};
+
+const computeFilePriceINR = (file: any, fallbackUnitPrice = 0) => {
+  const doc = DOCUMENT_TYPES?.find((d) => d.id === file.documentTypeId);
+  if (!doc?.basePrice) return fallbackUnitPrice;
+  return Math.round(doc.basePrice * tierMultiplier(file.tier));
+};
+
+/* =============================================================================
+   IndexedDB helpers
+============================================================================= */
+const DB_NAME = "udin-db";
+const DB_VERSION = 1;
+const FILES_STORE = "files";       // keyPath: "id"
+const METADATA_STORE = "metadata"; // keyPath: "key"
+
+type IndexedFile = {
+  id: string;
+  name: string;
+  size?: number;
+  type?: string;
+  // If you persist raw bytes, add: data?: ArrayBuffer | Blob
+};
+
+type IndexedMeta = Record<string, any>;
+
+function openDB(): Promise<IDBDatabase> {
+  return new Promise((resolve, reject) => {
+    const req = indexedDB.open(DB_NAME, DB_VERSION);
+    req.onerror = () => reject(req.error);
+    req.onsuccess = () => resolve(req.result);
+    req.onupgradeneeded = () => {
+      const db = req.result;
+      if (!db.objectStoreNames.contains(FILES_STORE)) {
+        db.createObjectStore(FILES_STORE, { keyPath: "id" });
+      }
+      if (!db.objectStoreNames.contains(METADATA_STORE)) {
+        db.createObjectStore(METADATA_STORE, { keyPath: "key" });
+      }
+    };
+  });
+}
+
+async function getAllFromStore<T = any>(storeName: string): Promise<T[]> {
+  const db = await openDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(storeName, "readonly");
+    const store = tx.objectStore(storeName);
+    const req = store.getAll();
+    req.onerror = () => reject(req.error);
+    req.onsuccess = () => resolve(req.result as T[]);
+  });
+}
+
+async function fetchIndexedFiles(): Promise<IndexedFile[]> {
+  try {
+    return await getAllFromStore<IndexedFile>(FILES_STORE);
+  } catch {
+    return [];
+  }
+}
+async function fetchIndexedMetadata(): Promise<IndexedMeta> {
+  try {
+    const rows = await getAllFromStore<{ key: string; value: any }>(METADATA_STORE);
+    return rows.reduce((acc, r) => {
+      acc[r.key] = r.value;
+      return acc;
+    }, {} as Record<string, any>);
+  } catch {
+    return {};
+  }
+}
+
+async function deleteFromStoreByKeys(storeName: string, keys: Array<IDBValidKey>) {
+  const db = await openDB();
+  await new Promise<void>((resolve, reject) => {
+    const tx = db.transaction(storeName, "readwrite");
+    const store = tx.objectStore(storeName);
+    keys.forEach((k) => store.delete(k));
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+    tx.onabort = () => reject(tx.error);
+  });
+}
+async function clearStore(storeName: string) {
+  const db = await openDB();
+  await new Promise<void>((resolve, reject) => {
+    const tx = db.transaction(storeName, "readwrite");
+    const store = tx.objectStore(storeName);
+    const req = store.clear();
+    req.onsuccess = () => resolve();
+    req.onerror = () => reject(req.error);
+  });
+}
+
+/** Completely wipes IndexedDB stores (files + metadata). */
+async function wipeAllIDB() {
+  await Promise.all([clearStore(FILES_STORE), clearStore(METADATA_STORE)]);
+}
+
+/* =============================================================================
+   Razorpay loader + API helpers
+============================================================================= */
+
+declare global {
+  interface Window {
+    Razorpay: any;
+  }
+}
+
+async function loadRazorpayScript(src = "https://checkout.razorpay.com/v1/checkout.js") {
+  if (window.Razorpay) return; // already loaded
+  await new Promise<void>((resolve, reject) => {
+    const script = document.createElement("script");
+    script.src = src;
+    script.onload = () => resolve();
+    script.onerror = () => reject(new Error("Failed to load Razorpay SDK"));
+    document.body.appendChild(script);
+  });
+}
+
+/** Small fetch helper with JSON + error bubbling */
+async function jsonFetch<T = any>(url: string, init?: RequestInit): Promise<T> {
+  const res = await fetch(url, {
+    headers: { "Content-Type": "application/json", ...(init?.headers || {}) },
+    ...init,
+  });
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    throw new Error(text || `HTTP ${res.status}`);
+  }
+  return res.json() as Promise<T>;
+}
+
+/** Retry helper */
+async function withRetry<T>(fn: () => Promise<T>, retries = 2, delayMs = 600): Promise<T> {
+  try {
+    return await fn();
+  } catch (err) {
+    if (retries <= 0) throw err;
+    await new Promise((r) => setTimeout(r, delayMs));
+    return withRetry(fn, retries - 1, delayMs * 1.5);
+  }
+}
+
+/* =============================================================================
+   Razorpay popup (frontend-controlled)
+============================================================================= */
+
+type RazorpayOpenArgs = {
+  key: string;              // publishable key_id from backend
+  orderId: string;          // Razorpay order id from backend
+  amountPaise: number;      // amount in paise
+  currency: string;         // "INR"
+  customer?: { name?: string; email?: string; contact?: string };
+  notes?: Record<string, string>;
+};
+
+function openRazorpayCheckout({
+  key,
+  orderId,
+  amountPaise,
+  currency,
+  customer,
+  notes,
+}: RazorpayOpenArgs): Promise<{
+  razorpay_payment_id: string;
+  razorpay_order_id: string;
+  razorpay_signature: string;
+}> {
+  return new Promise((resolve, reject) => {
+    const rzp = new window.Razorpay({
+      key,
+      order_id: orderId,
+      amount: amountPaise,
+      currency,
+      name: "Your Company Pvt Ltd",
+      description: "Document Processing",
+      notes,
+      prefill: {
+        name: customer?.name || "",
+        email: customer?.email || "",
+        contact: customer?.contact || "",
+      },
+      theme: { color: "#4f46e5" },
+      retry: { enabled: true, max_count: 1 },
+      handler: (resp: any) => resolve(resp),
+      modal: {
+        ondismiss: () => reject(new Error("Payment popup dismissed by user")),
+        confirm_close: true,
+        animation: true,
+      },
+    });
+
+    rzp.on("payment.failed", (resp: any) => {
+      const msg =
+        resp?.error?.description ||
+        resp?.error?.reason ||
+        "Payment failed in Razorpay popup";
+      reject(new Error(msg));
+    });
+
+    rzp.open();
+  });
+}
+
+/* =============================================================================
+   Upload API (production)
+   - uploads each file with XHR to report progress accurately
+============================================================================= */
+
+type UploadMeta = {
+  customerInfo?: any;
+  pricingSnapshot?: any;
+  extra?: IndexedMeta;
+};
+
+function uploadSingleFileWithProgress(
+  file: File,
+  transactionId: string,
+  meta: UploadMeta,
+  onOverallProgress: (deltaPercent: number) => void
+): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const form = new FormData();
+    form.append("file", file);
+    form.append("transactionId", transactionId);
+    form.append("meta", JSON.stringify(meta || {}));
+
+    const xhr = new XMLHttpRequest();
+    xhr.open("POST", "/api/uploads/file");
+    xhr.withCredentials = true;
+
+    xhr.upload.onprogress = (e) => {
+      if (!e.lengthComputable) return;
+      const percent = (e.loaded / e.total) * 100;
+      onOverallProgress(percent);
+    };
+    xhr.onload = () => {
+      if (xhr.status >= 200 && xhr.status < 300) resolve();
+      else reject(new Error(xhr.responseText || `Upload failed: ${xhr.status}`));
+    };
+    xhr.onerror = () => reject(new Error("Network error during upload"));
+    xhr.send(form);
+  });
+}
+
+async function uploadFilesToAPI(
+  files: Array<File | IndexedFile>,
+  idbMeta: IndexedMeta,
+  transactionId: string,
+  onProgress: (pct: number) => void,
+  metaExtras: UploadMeta
+): Promise<void> {
+  if (!files.length) {
+    onProgress(100);
+    return;
+  }
+
+  // Normalize any IndexedFile to Blob/File if needed
+  const normalized: File[] = files.map((f: any) => {
+    if (f instanceof File) return f;
+    // If you have the raw bytes stored, reconstruct a File. Otherwise placeholder blob:
+    return new File([new Blob([])], f.name || "document", { type: f.type || "application/octet-stream" });
+  });
+
+  let completed = 0;
+
+  for (let i = 0; i < normalized.length; i++) {
+    let lastEmitted = 0;
+    const file = normalized[i];
+
+    // Map per-file progress to overall percentage
+    await withRetry(
+      () =>
+        uploadSingleFileWithProgress(
+          file,
+          transactionId,
+          { ...metaExtras, extra: idbMeta },
+          (perFilePct) => {
+            const perFileWeight = 100 / normalized.length;
+            const overallThisFile = (perFilePct / 100) * perFileWeight;
+            const delta = overallThisFile - lastEmitted;
+            lastEmitted += delta;
+            const currentOverall = Math.min(99, (completed * 100) / normalized.length + lastEmitted);
+            onProgress(Math.floor(currentOverall));
+          }
+        ),
+      1
+    );
+
+    completed += 1;
+    const currentOverall = Math.min(99, (completed * 100) / normalized.length);
+    onProgress(Math.floor(currentOverall));
+  }
+
+  onProgress(100);
+}
+
+/* =============================================================================
+   Component
+============================================================================= */
 export default function Payment() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
-  const [showSuccessDialog, setShowSuccessDialog] = useState(false);
-  const [showFileUploadDialog, setShowFileUploadDialog] = useState(false);
-  const [uploadProgress, setUploadProgress] = useState(0);
+
+  // Customer info
   const [customerInfo, setCustomerInfo] = useState<any>(null);
 
+  // Upload UX state
+  const [showUploadDialog, setShowUploadDialog] = useState(false);
+  const [isFetchingIndexed, setIsFetchingIndexed] = useState(false);
+  const [indexedFiles, setIndexedFiles] = useState<IndexedFile[]>([]);
+  const [indexedMeta, setIndexedMeta] = useState<IndexedMeta>({});
+  const [uploadProgress, setUploadProgress] = useState(0);
+
+  // Final success modal
+  const [showSuccessDialog, setShowSuccessDialog] = useState(false);
+
+  // Errors
+  const [fatalError, setFatalError] = useState<string | null>(null);
+
+  // Contexts
   const { state: documentsState, actions: documentsActions } = useDocuments();
   const { state: pricingState, actions: pricingActions } = usePricing();
-  const { state: paymentState, actions: paymentActions } = usePayment();
+  const { state: paymentState } = usePayment();
 
-  // Initialize customer info once
   useEffect(() => {
     const userData = localStorage.getItem("udin_user_data");
     if (userData) {
       try {
-        const user = JSON.parse(userData);
-        setCustomerInfo(user);
-      } catch (error) {
-        console.error("Error parsing user data:", error);
+        setCustomerInfo(JSON.parse(userData));
+      } catch (e) {
+        console.error("Error parsing user data:", e);
       }
     }
   }, []);
 
-  // Handle the payment and file upload flow
-  const handlePayNow = async () => {
+  /* ---------- Price & items (robust) ---------- */
+  const validFiles = useMemo(() => {
     try {
-      // Simulating payment processing
-      //const result = await paymentActions.processRazorpayPayment();
-      if (true) {
-        // Once payment is successful, show the success dialog
-        setShowSuccessDialog(true);
-
-        // Show file upload dialog and simulate file upload
-        setShowFileUploadDialog(true);
-        setTimeout(() => {
-          // Simulate file upload process
-          simulateFileUpload();
-        }, 2000); // 2-second delay before starting the upload
-      } else {
-        console.error("Payment failed:", paymentState.error);
-      }
-    } catch (error) {
-      console.error("Payment processing error:", error);
+      return documentsActions.getValidFiles();
+    } catch {
+      return [];
     }
-  };
+  }, [documentsActions]);
 
-  const simulateFileUpload = async () => {
-    const files = documentsActions.getValidFiles(); // Fetch the files
-    let progress = 0;
-
-    for (let i = 0; i < files.length; i++) {
-      // Simulate file upload progress
-      while (progress < 100) {
-        setUploadProgress(progress);
-        progress += 10; // Update the progress
-        await new Promise((resolve) => setTimeout(resolve, 300)); // Simulate time delay for file upload
-      }
-    }
-
-    // Once upload is complete, show success dialog and redirect to login
-    setShowFileUploadDialog(false);
-    setTimeout(() => {
-      setShowSuccessDialog(true);
-    }, 1000); // Show the success dialog after a short delay
-
-    setTimeout(() => {
-      navigate("/login"); // Redirect to login after success
-    }, 4000); // 4 seconds delay before redirecting
-  };
-
-  // Get current calculation and order summary
-  const calculation = pricingState.calculation;
   const orderSummary = pricingActions.getOrderSummary();
-  const validFiles = documentsActions.getValidFiles();
+  const itemsFromOrder = Array.isArray(orderSummary?.items) ? orderSummary.items : [];
 
-  // Show loading if payment is processing or documents are loading
+  // Fallback unit price if per-item missing
+  const unitPrice =
+    pricingState?.calculation?.unitPrice ??
+    pricingState?.calculation?.perDocument ??
+    0;
+
+  // Normalize order items; compute price when missing
+  const normalizedOrderItems =
+    itemsFromOrder.length > 0
+      ? itemsFromOrder.map((it: any) => ({
+          id: it.id ?? it.fileId ?? (typeof crypto !== "undefined" ? crypto.randomUUID() : String(Math.random())),
+          name: it.name ?? it.fileName ?? "Document",
+          subtitle: it.fileName ?? undefined,
+          price:
+            typeof it.price === "number"
+              ? it.price
+              : computeFilePriceINR(
+                  {
+                    documentTypeId: it.documentTypeId,
+                    tier: it.tier,
+                  },
+                  unitPrice
+                ),
+          tier: it.tier,
+          udinRequired: !!DOCUMENT_TYPES.find((d) => d.id === it.documentTypeId)?.udinRequired,
+        }))
+      : [];
+
+  // Build items from files if order items are not present
+  const items =
+    normalizedOrderItems.length > 0
+      ? normalizedOrderItems
+      : validFiles.map((f: any) => {
+          const doc = DOCUMENT_TYPES.find((d) => d.id === f.documentTypeId);
+          return {
+            id: f.id,
+            name: doc?.name ?? f.name ?? "Document",
+            subtitle: f.name,
+            price: computeFilePriceINR(f, unitPrice),
+            tier: f.tier,
+            udinRequired: !!doc?.udinRequired,
+          };
+        });
+
+  const subtotal =
+    typeof pricingState?.calculation?.subtotal === "number"
+      ? pricingState.calculation.subtotal
+      : items.reduce((s: number, it: any) => s + (Number(it.price) || 0), 0);
+
+  const taxRate =
+    typeof pricingState?.calculation?.taxRate === "number"
+      ? pricingState.calculation.taxRate
+      : 0.18;
+
+  const gstAmount =
+    typeof pricingState?.calculation?.taxAmount === "number"
+      ? pricingState.calculation.taxAmount
+      : Math.round(subtotal * taxRate);
+
+  const totalAmount =
+    typeof pricingState?.calculation?.totalAmount === "number"
+      ? pricingState.calculation.totalAmount
+      : subtotal + gstAmount;
+
+      const BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://localhost:5000";
+
+  /* ---------- Real payment flow (with frontend popup) ---------- */
+/* ---------- Real payment flow (with frontend popup) ---------- */
+const handlePayNow = async () => {
+  setFatalError(null);
+
+  try {
+    // Load Razorpay SDK
+    await loadRazorpayScript();
+
+    // 1) Create Razorpay order
+    
+    
+    
+/*     const { orderId, amount, currency, razorpayKeyId } = await jsonFetch<{
+      orderId: string;
+      amount: number;   // paise
+      currency: string; // "INR"
+      razorpayKeyId: string;
+    }>(`${BASE_URL}/api/payments/order`, {
+      method: "POST",
+      body: JSON.stringify({
+        amount: totalAmount, 
+        notes: {
+          customerEmail: customerInfo?.email,
+          customerName: customerInfo?.name,
+        },
+        items,
+      }),
+    });
+ */
+    // 2) Create a pending transaction
+/*     const { transactionId } = await jsonFetch<{ transactionId: string }>(
+      `${BASE_URL}/transactions`,
+      {
+        method: "POST",
+        body: JSON.stringify({
+          orderId,
+          amount: totalAmount,
+          currency,
+          status: "pending",
+          items,
+          customer: customerInfo,
+          tax: { rate: taxRate, gstAmount },
+          subtotal,
+        }),
+      }
+    );
+ */
+    // 3) Open Razorpay popup
+/*     const resp = await openRazorpayCheckout({
+      key: razorpayKeyId,
+      orderId,
+      amountPaise: amount,
+      currency,
+      customer: {
+        name: customerInfo?.name,
+        email: customerInfo?.email,
+        contact: customerInfo?.phone,
+      },
+      notes: { transactionId },
+    });
+ */
+    // 4) Verify payment on backend
+/*     const verify = await jsonFetch<{ verified: boolean }>(`${BASE_URL}/payments/verify`, {
+      method: "POST",
+      body: JSON.stringify({
+        orderId: resp.razorpay_order_id,
+        paymentId: resp.razorpay_payment_id,
+        signature: resp.razorpay_signature,
+      }),
+    });
+    if (!verify.verified) throw new Error("Payment verification failed");
+ */
+    // 5) Mark transaction as paid
+/*     await jsonFetch(`${BASE_URL}/transactions/${transactionId}/status`, {
+      method: "PATCH",
+      body: JSON.stringify({
+        status: "paid",
+        paymentId: resp.razorpay_payment_id,
+      }),
+    });
+ */
+    // 6) Upload files
+    const transactionId = "uuidv4";
+    setShowUploadDialog(true);
+    setIsFetchingIndexed(true);
+
+    const [idbFilesFetched, idbMetaFetched] = await Promise.all([
+      fetchIndexedFiles(),
+      fetchIndexedMetadata(),
+    ]);
+
+    setIndexedFiles(idbFilesFetched);
+    setIndexedMeta(idbMetaFetched);
+    setIsFetchingIndexed(false);
+
+    const contextFiles = (() => {
+      try {
+        return documentsActions.getValidFiles();
+      } catch {
+        return [];
+      }
+    })();
+
+    const allFiles = [...contextFiles, ...idbFilesFetched];
+
+    await uploadFilesToAPI(
+      allFiles,
+      idbMetaFetched,
+      transactionId,
+      (pct) => setUploadProgress(pct),
+      {
+        customerInfo,
+        pricingSnapshot: {
+          items,
+          subtotal,
+          gstAmount,
+          totalAmount,
+          taxRate,
+        },
+      }
+    );
+
+    // 7) Mark uploaded
+ /*    await jsonFetch(`${BASE_URL}/transactions/${transactionId}/status`, {
+      method: "PATCH",
+      body: JSON.stringify({
+        status: "uploaded",
+        uploadedFilesCount: allFiles.length,
+      }),
+    }); */
+
+    // 8) Wipe IDB
+    await wipeAllIDB();
+
+    // Success
+    setShowUploadDialog(false);
+    setShowSuccessDialog(true);
+  } catch (error: any) {
+    console.error("Payment/upload error:", error);
+    setFatalError(error?.message || "Payment could not be completed.");
+    setShowUploadDialog(false);
+  }
+};
+
+
+
+  /* ---------- Loading / error screens ---------- */
   if (paymentState.isProcessing || documentsState.isLoading) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-indigo-50 flex items-center justify-center p-4">
         <div className="text-center">
           <Loader2 className="h-12 w-12 text-primary mx-auto mb-4 animate-spin" />
-          <p className="text-lg text-muted-foreground mb-4">
-            {paymentState.isProcessing
-              ? "Preparing your payment..."
-              : "Loading your documents..."}
-          </p>
-          <p className="text-sm text-gray-500">Please wait while we set up your order</p>
         </div>
       </div>
     );
   }
 
-  // Show error if payment initialization failed
-  if (paymentState.error && !paymentState.currentPayment) {
-    return (
-      <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-indigo-50 flex items-center justify-center p-4">
-        <div className="text-center max-w-md">
-          <AlertCircle className="h-12 w-12 text-red-500 mx-auto mb-4" />
-          <p className="text-lg text-muted-foreground mb-4">Payment Setup Failed</p>
-          <Alert variant="destructive" className="mb-4">
-            <AlertCircle className="h-4 w-4" />
-            <AlertDescription>{paymentState.error}</AlertDescription>
-          </Alert>
-          <div className="space-y-2">
-            <Button variant="outline" onClick={() => navigate("/")}>
-              Go to Upload
-            </Button>
-            <Button variant="ghost" onClick={() => window.location.reload()}>
-              Retry
-            </Button>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
+  /* ---------- Main UI ---------- */
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-indigo-50">
       {/* Header */}
@@ -159,12 +640,12 @@ export default function Payment() {
             </Button>
             <div className="hidden sm:block w-px h-6 bg-gray-300" />
             <h1 className="hidden sm:block text-lg font-semibold text-gray-900">
-              Complete UDIN Payment
+              Payment Summary
             </h1>
           </div>
           <div className="flex items-center gap-2">
             <Shield className="h-4 w-4 text-green-600" />
-            <span className="text-sm text-gray-600">Secured by Razorpay</span>
+            <span className="text-sm text-gray-600">Powered by Razorpay</span>
           </div>
         </div>
       </div>
@@ -172,9 +653,8 @@ export default function Payment() {
       {/* Payment Content */}
       <div className="flex-1 flex items-center justify-center px-4 py-8">
         <div className="w-full max-w-lg space-y-6">
-          {/* Payment Summary Card */}
-          <Card className="border-0 shadow-xl">
-            <CardHeader className="text-center pb-6 bg-gradient-to-r from-primary to-primary/80 text-white rounded-t-lg">
+          <Card className="border-0 shadow-xl rounded-2xl overflow-hidden">
+            <CardHeader className="text-center pb-6 bg-gradient-to-r from-primary to-primary/80 text-white">
               <div className="mx-auto mb-4 p-3 rounded-full bg-white/20">
                 <IndianRupee className="h-8 w-8" />
               </div>
@@ -187,18 +667,35 @@ export default function Payment() {
                 <div className="flex justify-between items-center mb-3">
                   <h3 className="font-medium text-gray-900">Order Details</h3>
                   <Badge variant="outline">
-                    {orderSummary.totalDocuments} document
-                    {orderSummary.totalDocuments > 1 ? "s" : ""}
+                    {items.length} document{items.length > 1 ? "s" : ""}
                   </Badge>
                 </div>
-                {/* Display order details */}
-                {validFiles.map((file) => (
-                  <div key={file.id} className="flex justify-between items-start">
+
+                {items.map((item: any) => (
+                  <div key={item.id} className="flex justify-between items-start">
                     <div>
-                      <h4 className="font-medium text-gray-900 text-sm">{file.name}</h4>
+                      <h4 className="font-medium text-gray-900 text-sm">{item.name}</h4>
+                      {item.subtitle && (
+                        <p className="text-xs text-gray-600">{item.subtitle}</p>
+                      )}
+                      <div className="flex items-center gap-2 mt-1">
+                        {item.tier && (
+                          <Badge variant="outline" className="text-xs">
+                            {item.tier}
+                          </Badge>
+                        )}
+                        {item.udinRequired && (
+                          <Badge
+                            variant="outline"
+                            className="text-xs bg-green-50 text-green-700"
+                          >
+                            UDIN Required
+                          </Badge>
+                        )}
+                      </div>
                     </div>
                     <div className="text-right">
-                      <div className="font-medium text-sm">₹{file.price}</div>
+                      <div className="font-medium text-sm">{formatINR(Number(item.price))}</div>
                     </div>
                   </div>
                 ))}
@@ -208,25 +705,37 @@ export default function Payment() {
               <div className="space-y-3">
                 <div className="flex justify-between text-sm">
                   <span className="text-gray-600">Subtotal</span>
-                  <span className="font-medium">₹{calculation.subtotal}</span>
+                  <span className="font-medium">{formatINR(subtotal)}</span>
+                </div>
+                <div className="flex justify-between text-sm">
+                  <span className="text-gray-600">GST ({Math.round(taxRate * 100)}%)</span>
+                  <span className="font-medium">{formatINR(gstAmount)}</span>
                 </div>
                 <Separator />
                 <div className="flex justify-between items-center">
                   <span className="text-lg font-semibold text-gray-900">Total Amount</span>
                   <div className="text-right">
                     <div className="text-2xl font-bold text-gray-900">
-                      ₹{calculation.totalAmount}
+                      {formatINR(totalAmount)}
                     </div>
                     <div className="text-sm text-gray-500">(Including all taxes)</div>
                   </div>
                 </div>
               </div>
 
-              {/* Pay Now Button */}
+              {/* Error Alerts */}
+              {(paymentState.error || fatalError) && (
+                <Alert variant="destructive">
+                  <AlertCircle className="h-4 w-4" />
+                  <AlertDescription>{fatalError || paymentState.error}</AlertDescription>
+                </Alert>
+              )}
+
+              {/* Pay Now */}
               <Button
                 onClick={handlePayNow}
                 disabled={paymentState.isProcessing}
-                className="w-full bg-gradient-to-r from-primary to-primary/80 hover:from-primary/90 hover:to-primary/70 text-white font-semibold py-6 text-lg"
+                className="w-full bg-gradient-to-r from-primary to-primary/80 hover:from-primary/90 hover:to-primary/70 text-white font-semibold py-6 text-lg rounded-xl"
                 size="lg"
               >
                 {paymentState.isProcessing ? (
@@ -234,50 +743,95 @@ export default function Payment() {
                 ) : (
                   <IndianRupee className="h-5 w-5 mr-2" />
                 )}
-                Pay ₹{calculation.totalAmount} Now
+                Pay {formatINR(totalAmount)} Now
               </Button>
             </CardContent>
           </Card>
         </div>
       </div>
 
-      {/* File Upload Progress Dialog */}
-      <Dialog open={showFileUploadDialog} onOpenChange={setShowFileUploadDialog}>
+      {/* Upload Progress (auto after payment) */}
+      <Dialog open={showUploadDialog} onOpenChange={setShowUploadDialog}>
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Uploading Files...</DialogTitle>
+            <DialogDescription>
+              {isFetchingIndexed
+                ? "Fetching your documents and details..."
+                : "Please keep this window open while we upload your files."}
+            </DialogDescription>
           </DialogHeader>
+
+          {/* Once fetched, list files briefly */}
+          {!isFetchingIndexed && (
+            <div className="bg-gray-50 rounded-md p-3 mb-3">
+              <div className="flex items-center justify-between mb-2">
+                <span className="font-medium text-sm text-gray-900">Files</span>
+                <Badge variant="outline">
+                  {validFiles.length + indexedFiles.length} total
+                </Badge>
+              </div>
+              <div className="max-h-40 overflow-auto pr-1 space-y-2">
+                {[...validFiles, ...indexedFiles].map((f: any) => (
+                  <div
+                    key={f.id || f.name}
+                    className="flex items-center justify-between text-sm"
+                  >
+                    <div className="flex items-center gap-2">
+                      <FileText className="h-4 w-4 text-gray-500" />
+                      <span className="truncate">{f.name}</span>
+                    </div>
+                    {typeof f.size === "number" && (
+                      <span className="text-muted-foreground">
+                        {(f.size / 1024).toFixed(1)} KB
+                      </span>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Progress bar */}
           <div className="text-center">
-            <div className="text-xl font-semibold">Uploading {uploadProgress}%</div>
+            <div className="text-sm font-medium">Uploading {uploadProgress}%</div>
             <div className="w-full bg-gray-300 rounded-full h-2 my-4">
               <div
                 style={{ width: `${uploadProgress}%` }}
-                className="bg-green-500 h-2 rounded-full"
+                className="bg-green-500 h-2 rounded-full transition-all"
               />
             </div>
-            <div className="text-sm">Please wait while we upload your files.</div>
           </div>
         </DialogContent>
       </Dialog>
 
-      {/* Success Dialog */}
+      {/* Final Success */}
       <Dialog open={showSuccessDialog} onOpenChange={setShowSuccessDialog}>
         <DialogContent>
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <CheckCircle className="h-5 w-5 text-green-600" />
-              Payment Successful
+              Files Uploaded
             </DialogTitle>
             <DialogDescription>
-              Your payment has been processed successfully. You will be
-              redirected to your dashboard.
+              Your files were uploaded successfully. Login to your dashboard to see the status.
             </DialogDescription>
           </DialogHeader>
           <div className="text-center py-4">
             <div className="text-2xl font-bold text-green-600">
-              ₹{calculation.totalAmount}
+              {formatINR(totalAmount)}
             </div>
-            <div className="text-sm text-gray-500 mt-1">Transaction completed</div>
+            <div className="text-sm text-gray-500 mt-1">Payment and upload completed</div>
+          </div>
+          <div className="flex justify-end">
+            <Button
+              onClick={() => {
+                setShowSuccessDialog(false);
+                navigate("/login");
+              }}
+            >
+              OK
+            </Button>
           </div>
         </DialogContent>
       </Dialog>
