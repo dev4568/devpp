@@ -9,6 +9,7 @@ import {
   handleWebhook,
   getConfig,
 } from "./routes/payment";
+import { uploadFiles, getUploadStatus, getUserUploads } from "./routes/uploads";
 
 export function createServer() {
   const app = express();
@@ -32,6 +33,11 @@ export function createServer() {
   app.get("/api/payment/status/:paymentId", getPaymentStatus);
   app.post("/api/payment/webhook", handleWebhook);
   app.get("/api/payment/config", getConfig);
+
+  // File upload routes
+  app.post("/api/uploads/files", uploadFiles);
+  app.get("/api/uploads/status/:uploadId", getUploadStatus);
+  app.get("/api/uploads/user/:userId", getUserUploads);
 
   return app;
 }
